@@ -1,0 +1,138 @@
+{
+  "AppVersion": "1.0",
+  "UnityVersion": "6000.0.68f1",
+  "Scenario": {
+    "Name": "Auto-Tiling Test",
+    "Author": "EcoKnow",
+    "Description": "Hard-coded 21x11 world mirroring the layout of the legacy Biome Tester scenario from creator_old: a sea of Water with a 7x7 sand-bordered chamber (cols 7-13, rows 2-8) containing Grass and Soil patches. Where the original used population-based dynamic biome detection (grass + rabbit + sand + seawater), this scenario uses hard-coded zone IDs (Water/Sand/Grass/Soil) for auto-tiling testing. SOURCE OF TRUTH: Map_AutoTilingTest.csv (zone definitions + tile layout) and the four auto_tiling_test_*.csv matrix files. This JSON is a snapshot of those sources; regenerate it if the source CSV changes.",
+    "CoverImageBase64": "",
+    "Rounds": 10,
+    "ActionsPerRound": 1,
+    "StartCurrency": 0,
+    "Seed": 0,
+    "Entities": [
+      {
+        "ID": "autoTilePlaceholder",
+        "Icon": "Icons/rock_high_contrast",
+        "Colour": "808080FF",
+        "GrowthRate": 0.0,
+        "MovementRate": 0.0,
+        "VulnerableThreshold": 0.0,
+        "AbundanceThreshold": 0.0,
+        "AutoPlace": false,
+        "StartPopulation": 0,
+        "CanHarvest": false,
+        "CanIntroduce": false,
+        "HarvestLimit": 0,
+        "IntroduceLimit": 0,
+        "HarvestQuantities": null,
+        "IntroduceQuantities": null,
+        "ZoneInformation": [
+          { "ZoneID": 0, "GrowthRate": 0.0, "MovementRate": 0.0, "Transitions": [] },
+          { "ZoneID": 1, "GrowthRate": 0.0, "MovementRate": 0.0, "Transitions": [] },
+          { "ZoneID": 2, "GrowthRate": 0.0, "MovementRate": 0.0, "Transitions": [] },
+          { "ZoneID": 3, "GrowthRate": 0.0, "MovementRate": 0.0, "Transitions": [] }
+        ]
+      }
+    ],
+    "Items": null,
+    "WinConditions": [
+      {
+        "Title": "Inspect All Zones",
+        "Description": "Visual test scenario: confirm all four zones (Water, Sand, Grass, Soil) render with the correct colors at every boundary.",
+        "TypeIndex": 0,
+        "TargetIndex": 0,
+        "LowerLimit": 999999.0,
+        "UpperLimit": 0.0,
+        "RequiredRounds": 99
+      }
+    ],
+    "Matrix": {
+      "entityIDs": ["autoTilePlaceholder"],
+      "entityMatrix": [[0.0]],
+      "zoneIndex": 0
+    },
+    "Map": {
+      "fileName": "Map_AutoTilingTest",
+      "gridDef": {
+        "rows": 11,
+        "columns": 21,
+        "tileIDs": [
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,0,1,1,1,1,1,1,1,0,0],
+          [0,0,1,2,2,3,3,3,1,0,0],
+          [0,0,1,2,2,3,3,3,1,0,0],
+          [0,0,1,3,3,3,3,3,1,0,0],
+          [0,0,1,2,2,2,2,2,1,0,0],
+          [0,0,1,2,2,2,2,2,1,0,0],
+          [0,0,1,1,1,1,1,1,1,0,0],
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,0,0,0,0,0,0,0,0,0,0],
+          [0,0,0,0,0,0,0,0,0,0,0]
+        ],
+        "tilePopulations": [
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]],
+          [[0],[0],[0],[0],[0],[0],[0],[0],[0],[0],[0]]
+        ],
+        "zoneDefs": [
+          { "ID": 0, "Name": "Water", "Colour": "#4AA1F2" },
+          { "ID": 1, "Name": "Sand",  "Colour": "#F4D27A" },
+          { "ID": 2, "Name": "Grass", "Colour": "#66BB6A" },
+          { "ID": 3, "Name": "Soil",  "Colour": "#6D4C2E" }
+        ],
+        "bgColour": "#0F1A2B"
+      }
+    },
+    "Matrices": [
+      {
+        "entityIDs": ["autoTilePlaceholder"],
+        "entityMatrix": [[0.0]],
+        "zoneIndex": 0
+      },
+      {
+        "entityIDs": ["autoTilePlaceholder"],
+        "entityMatrix": [[0.0]],
+        "zoneIndex": 1
+      },
+      {
+        "entityIDs": ["autoTilePlaceholder"],
+        "entityMatrix": [[0.0]],
+        "zoneIndex": 2
+      },
+      {
+        "entityIDs": ["autoTilePlaceholder"],
+        "entityMatrix": [[0.0]],
+        "zoneIndex": 3
+      }
+    ]
+  }
+}
