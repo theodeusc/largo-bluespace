@@ -53,16 +53,23 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
         public GridManager ParentGrid => GetComponentInParent<GridManager>();
 
-        public void Init(int column, int row, int tileID, Color? zoneColor = null)
+        public void Init(int column, int row, int tileID, Color? zoneColor = null, bool hideZoneColor = false)
         {
             _row = row;
             _column = column;
 
             this.gameObject.name = $"Cell {_column}_{_row}";
 
-            if (zoneColor.HasValue && zoneColorRenderer != null)
+            if (zoneColorRenderer != null)
             {
-                zoneColorRenderer.color = zoneColor.Value;
+                if (hideZoneColor)
+                {
+                    zoneColorRenderer.enabled = false;
+                }
+                else if (zoneColor.HasValue)
+                {
+                    zoneColorRenderer.color = zoneColor.Value;
+                }
             }
 
             ShowHighlight(false);

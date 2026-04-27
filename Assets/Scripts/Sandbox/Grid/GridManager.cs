@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Glitchers.EcoKnow.Sandbox.Terrain;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -105,6 +106,9 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
         [Header("Prefabs")]
         [SerializeField] protected GameObject cellPrefab;
+
+        [Header("Terrain")]
+        [SerializeField] protected DualGridTerrainRenderer _terrainRenderer;
 
         //Events
         public CellEvent OnCellClicked;
@@ -270,13 +274,19 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
                 }
             }
 
-            //Clear all test/debug/old cells
-            foreach (Transform cell in cellContainer)
+            //Clear old cells. Skip non-Cell children (e.g. TerrainRoot) so the terrain renderer
+            //isn't destroyed alongside cells when the scenario reloads.
+            foreach (Transform child in cellContainer)
             {
-                Destroy(cell.gameObject);
+                if (child.GetComponent<Cell>() != null)
+                {
+                    Destroy(child.gameObject);
+                }
             }
 
             cellList = new Cell[columns, rows];
+
+            bool hideZoneColor = _terrainRenderer != null;
 
             //Generate new ones
             for (int y = 0; y < rows; y++)
@@ -299,9 +309,14 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
                         zoneColor = c;
                     }
 
-                    cell.GetComponent<Cell>()?.Init(x, y, tileID, zoneColor);
+                    cell.GetComponent<Cell>()?.Init(x, y, tileID, zoneColor, hideZoneColor);
                     cellList[x, y] = cell.GetComponent<Cell>();
                 }
+            }
+
+            if (_terrainRenderer != null)
+            {
+                _terrainRenderer.Build(columns, rows, cellWidth, cellGap, GetZoneType);
             }
 
             gridCamera.Init(this);
