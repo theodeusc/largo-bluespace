@@ -97,6 +97,7 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
         [SerializeField] protected int rows;
         [SerializeField] protected int columns;
         private int[,] _tileZones;
+        private bool[,] _voidMask;
 
         [Header("Cells")]
         [SerializeField] protected Transform cellContainer;
@@ -316,7 +317,7 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
             if (_terrainRenderer != null)
             {
-                _terrainRenderer.Build(columns, rows, cellWidth, cellGap, GetZoneType);
+                _terrainRenderer.Build(columns, rows, cellWidth, cellGap, GetZoneType, IsVoid);
             }
 
             gridCamera.Init(this);
@@ -530,12 +531,14 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
             int cols = tileIDs.GetLength(0);
             int rows = tileIDs.GetLength(1);
             _tileZones = new int[cols, rows];
+            _voidMask = new bool[cols, rows];
             for (int x = 0; x < cols; x++)
             {
                 for (int y = 0; y < rows; y++)
                 {
                     int id = tileIDs[x, y];
                     _tileZones[x, y] = id >= 0 ? id : 0;
+                    _voidMask[x, y] = id < 0;
                 }
             }
         }
@@ -549,6 +552,14 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
                 return _tileZones[column, row];
             }
             return 0;
+        }
+
+        public bool IsVoid(int column, int row)
+        {
+            if (_voidMask == null) return true;
+            if (column < 0 || column >= _voidMask.GetLength(0)) return true;
+            if (row < 0 || row >= _voidMask.GetLength(1)) return true;
+            return _voidMask[column, row];
         }
         #endregion
     }

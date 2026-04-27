@@ -59,19 +59,23 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         private int _columns;
         private int _rows;
         private bool _hierarchyBuilt;
+        private Func<int, int, bool> _isVoid;
 
         private Dictionary<string, TileBase[]> _tiles;
+        private Dictionary<string, TileBase[]> _voidMaskedTiles;
         private Dictionary<string, TileBase> _markerTiles;
         private Dictionary<string, Tilemap> _dataTilemaps;
         private Dictionary<string, Tilemap> _visualTilemaps;
 
-        public void Build(int columns, int rows, float cellScale, float cellGap, Func<int, int, int> getZoneId)
+        public void Build(int columns, int rows, float cellScale, float cellGap, Func<int, int, int> getZoneId, Func<int, int, bool> isVoid)
         {
             if (getZoneId == null) throw new ArgumentNullException(nameof(getZoneId));
+            if (isVoid == null) throw new ArgumentNullException(nameof(isVoid));
 
             _coords = new GridCoords(cellScale, cellGap);
             _columns = columns;
             _rows = rows;
+            _isVoid = isVoid;
 
             EnsureTilesLoaded();
             EnsureHierarchy();
@@ -83,6 +87,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         {
             if (_tiles != null) return;
             _tiles = new Dictionary<string, TileBase[]>();
+            _voidMaskedTiles = new Dictionary<string, TileBase[]>();
             _markerTiles = new Dictionary<string, TileBase>();
 
             foreach (string terrain in TerrainPriority.AllTerrainNames())
@@ -105,6 +110,138 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
 
                 _tiles[terrain] = tiles;
                 _markerTiles[terrain] = tiles[FullTileIndex] ?? FirstNonNull(tiles);
+            }
+
+            // Boundary variants ride on a main terrain's data + visual tilemaps; load their sprites
+            // here so RefreshVisualTilemap can swap to them per-tile, but skip marker/data/visual setup.
+            // The variant texture is expected to mark its "void" region with opaque black pixels (the
+            // mask). At load time those black pixels are stripped to alpha 0 so the variant renders
+            // cleanly, and the mask is stashed for use by VoidMasks below.
+            Dictionary<string, bool[]> variantMasks = new Dictionary<string, bool[]>();
+            Dictionary<string, int> variantPixelWidth = new Dictionary<string, int>();
+            foreach (string variantName in TilesetConstants.VoidVariants.Values)
+            {
+                if (_tiles.ContainsKey(variantName)) continue;
+                if (!TilesetConstants.TilesetPaths.TryGetValue(variantName, out string variantPath))
+                {
+                    Debug.LogWarning($"[DualGridTerrainRenderer] No resource path registered for void variant '{variantName}'.");
+                    continue;
+                }
+                Texture2D variantTexture = Resources.Load<Texture2D>(variantPath);
+                if (variantTexture == null)
+                {
+                    Debug.LogWarning($"[DualGridTerrainRenderer] Missing tileset texture: Resources/{variantPath}");
+                    continue;
+                }
+
+                Color32[] srcPixels;
+                try { srcPixels = variantTexture.GetPixels32(); }
+                catch (UnityException e)
+                {
+                    Debug.LogWarning($"[DualGridTerrainRenderer] Cannot read '{variantName}' pixels (isReadable must be true): {e.Message}");
+                    continue;
+                }
+                bool[] mask = new bool[srcPixels.Length];
+                Color32[] cleaned = new Color32[srcPixels.Length];
+                for (int i = 0; i < srcPixels.Length; i++)
+                {
+                    Color32 p = srcPixels[i];
+                    bool isBlack = p.a >= 250 && p.r <= 16 && p.g <= 16 && p.b <= 16;
+                    mask[i] = isBlack;
+                    cleaned[i] = isBlack ? new Color32(0, 0, 0, 0) : p;
+                }
+                Texture2D cleanTex = new Texture2D(variantTexture.width, variantTexture.height, TextureFormat.RGBA32, mipChain: false)
+                {
+                    name = $"{variantName}_cleaned",
+                    filterMode = FilterMode.Point,
+                    wrapMode = TextureWrapMode.Clamp
+                };
+                cleanTex.SetPixels32(cleaned);
+                cleanTex.Apply(updateMipmaps: false, makeNoLongerReadable: false);
+
+                TileBase[] variantTiles = SliceTextureIntoTiles(cleanTex, variantName);
+                if (variantTiles == null) continue;
+                _tiles[variantName] = variantTiles;
+                variantMasks[variantName] = mask;
+                variantPixelWidth[variantName] = variantTexture.width;
+            }
+
+            // VoidMasks: bake the variant's black-pixel mask into the target terrain's sprites by
+            // setting alpha=0 wherever the mask is true. Used at boundary halos for terrains that
+            // are stamped on water cells (e.g. sand) so their soft edges don't leak past the SeaVoid
+            // seam. The masked sprites are stored separately and selected by RefreshVisualTilemap
+            // when AnyCornerIsVoid is true.
+            foreach (var pair in TilesetConstants.VoidMasks)
+            {
+                string targetTerrain = pair.Key;
+                string maskSource = pair.Value;
+                if (!variantMasks.TryGetValue(maskSource, out bool[] mask))
+                {
+                    Debug.LogWarning($"[DualGridTerrainRenderer] Void mask source '{maskSource}' has no mask data; cannot mask '{targetTerrain}'.");
+                    continue;
+                }
+                if (!TilesetConstants.TilesetPaths.TryGetValue(targetTerrain, out string targetPath))
+                {
+                    Debug.LogWarning($"[DualGridTerrainRenderer] No resource path registered for void mask target '{targetTerrain}'.");
+                    continue;
+                }
+                Texture2D targetTexture = Resources.Load<Texture2D>(targetPath);
+                if (targetTexture == null)
+                {
+                    Debug.LogWarning($"[DualGridTerrainRenderer] Missing tileset texture: Resources/{targetPath}");
+                    continue;
+                }
+
+                // For pixel-by-pixel masking the variant must be square (non-animated) and the same
+                // dimensions as the target's leftmost-frame block (which the slicer reads). Target
+                // block = (4 * tileSize) × (4 * tileSize) = targetTexture.height × targetTexture.height.
+                int variantWidth = variantPixelWidth[maskSource];
+                int variantHeight = mask.Length / variantWidth;
+                int targetBlockSize = targetTexture.height;
+                if (variantWidth != targetBlockSize || variantHeight != targetBlockSize)
+                {
+                    Debug.LogWarning($"[DualGridTerrainRenderer] Void mask geometry mismatch: '{maskSource}' is {variantWidth}x{variantHeight} but '{targetTerrain}' leftmost block is {targetBlockSize}x{targetBlockSize}. Skipping.");
+                    continue;
+                }
+
+                Color32[] targetPixels;
+                try { targetPixels = targetTexture.GetPixels32(); }
+                catch (UnityException e)
+                {
+                    Debug.LogWarning($"[DualGridTerrainRenderer] Cannot read '{targetTerrain}' pixels: {e.Message}");
+                    continue;
+                }
+
+                // Copy the target's leftmost block, applying alpha=0 wherever the mask is set.
+                Color32[] maskedBlock = new Color32[targetBlockSize * targetBlockSize];
+                int srcWidth = targetTexture.width;
+                for (int y = 0; y < targetBlockSize; y++)
+                {
+                    int srcRowStart = y * srcWidth;
+                    int dstRowStart = y * targetBlockSize;
+                    for (int x = 0; x < targetBlockSize; x++)
+                    {
+                        Color32 px = targetPixels[srcRowStart + x];
+                        if (mask[dstRowStart + x])
+                        {
+                            px.a = 0;
+                        }
+                        maskedBlock[dstRowStart + x] = px;
+                    }
+                }
+
+                Texture2D maskedTex = new Texture2D(targetBlockSize, targetBlockSize, TextureFormat.RGBA32, mipChain: false)
+                {
+                    name = $"{targetTerrain}_voidMasked",
+                    filterMode = FilterMode.Point,
+                    wrapMode = TextureWrapMode.Clamp
+                };
+                maskedTex.SetPixels32(maskedBlock);
+                maskedTex.Apply(updateMipmaps: false, makeNoLongerReadable: false);
+
+                TileBase[] maskedTiles = SliceTextureIntoTiles(maskedTex, $"{targetTerrain}_voidMasked");
+                if (maskedTiles == null) continue;
+                _voidMaskedTiles[targetTerrain] = maskedTiles;
             }
         }
 
@@ -269,6 +406,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             {
                 for (int col = 0; col < _columns; col++)
                 {
+                    if (_isVoid != null && _isVoid(col, row)) continue;
                     int zoneId = getZoneId(col, row);
                     if (!TerrainPriority.ZoneTerrainStacks.TryGetValue(zoneId, out string[] terrains)) continue;
 
@@ -297,13 +435,26 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         // 4 data corners surrounding visual (vx, vy)'s center are at:
         //   TL = (vx-1, vy)    TR = (vx,   vy)
         //   BL = (vx-1, vy-1)  BR = (vx,   vy-1)
-        // Visual range covers vx ∈ [0, C] and vy ∈ [-(R-1), 1]. Out-of-data lookups are clamped to
-        // the grid edge so terrain reads as continuous at borders rather than fading out.
+        // Visual range covers vx ∈ [0, C] and vy ∈ [-(R-1), 1]. Out-of-data corners read as absent
+        // so the marching-squares lookup yields proper edge sprites at the world boundary. At
+        // boundary halos (any corner void) the tile sprite is swapped: VoidVariants picks a sprite
+        // from a separate variant tileset (e.g. sea→sea_void), VoidMasks picks an alpha-masked
+        // variant of the terrain's own sprite (e.g. sand clipped to the SeaVoid silhouette).
         private void RefreshVisualTilemap(string terrain, Tilemap visualTilemap)
         {
             visualTilemap.ClearAllTiles();
             if (!_dataTilemaps.TryGetValue(terrain, out Tilemap dataTilemap)) return;
             if (!_tiles.TryGetValue(terrain, out TileBase[] tiles)) return;
+
+            TileBase[] boundaryTiles = null;
+            if (TilesetConstants.VoidVariants.TryGetValue(terrain, out string variantName))
+            {
+                _tiles.TryGetValue(variantName, out boundaryTiles);
+            }
+            else if (TilesetConstants.VoidMasks.ContainsKey(terrain))
+            {
+                _voidMaskedTiles.TryGetValue(terrain, out boundaryTiles);
+            }
 
             for (int vy = -(_rows - 1); vy <= 1; vy++)
             {
@@ -311,28 +462,45 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 {
                     int idx = SampleAndLookup(dataTilemap, vx, vy, _columns, _rows);
                     if (idx == EmptyTileIndex) continue;
-                    visualTilemap.SetTile(new Vector3Int(vx, vy, 0), tiles[idx]);
+
+                    TileBase[] activeTiles = (boundaryTiles != null && AnyCornerIsVoid(vx, vy))
+                        ? boundaryTiles
+                        : tiles;
+                    visualTilemap.SetTile(new Vector3Int(vx, vy, 0), activeTiles[idx]);
                 }
             }
         }
 
         private static int SampleAndLookup(Tilemap data, int vx, int vy, int columns, int rows)
         {
-            bool tl = ClampedPresence(data, vx - 1, vy,     columns, rows);
-            bool tr = ClampedPresence(data, vx,     vy,     columns, rows);
-            bool bl = ClampedPresence(data, vx - 1, vy - 1, columns, rows);
-            bool br = ClampedPresence(data, vx,     vy - 1, columns, rows);
+            bool tl = Presence(data, vx - 1, vy,     columns, rows);
+            bool tr = Presence(data, vx,     vy,     columns, rows);
+            bool bl = Presence(data, vx - 1, vy - 1, columns, rows);
+            bool br = Presence(data, vx,     vy - 1, columns, rows);
             return NeighbourToTileIndex.TryGetValue((tl, tr, bl, br), out int idx) ? idx : EmptyTileIndex;
         }
 
-        // Clamps a sample position to the data grid (X ∈ [0, C-1], Y ∈ [-(R-1), 0]) so visual
-        // tiles at the grid edge see filled corners on all sides — matches creator_old's
-        // hard-edge behaviour and prevents auto-tiles from fading out at the world boundary.
-        private static bool ClampedPresence(Tilemap data, int x, int y, int columns, int rows)
+        private static bool Presence(Tilemap data, int x, int y, int columns, int rows)
         {
-            int cx = Mathf.Clamp(x, 0, columns - 1);
-            int cy = Mathf.Clamp(y, -(rows - 1), 0);
-            return data.GetTile(new Vector3Int(cx, cy, 0)) != null;
+            if (x < 0 || x >= columns) return false;
+            if (y > 0 || y < -(rows - 1)) return false;
+            return data.GetTile(new Vector3Int(x, y, 0)) != null;
+        }
+
+        // True if any of the 4 data corners around visual (vx, vy) is a void cell.
+        // Data coord (x, y) maps to grid cell (col=x, row=-y) — see CellToData in GridCoords.
+        private bool AnyCornerIsVoid(int vx, int vy)
+        {
+            return IsVoidAtData(vx - 1, vy)
+                || IsVoidAtData(vx,     vy)
+                || IsVoidAtData(vx - 1, vy - 1)
+                || IsVoidAtData(vx,     vy - 1);
+        }
+
+        private bool IsVoidAtData(int dataX, int dataY)
+        {
+            if (_isVoid == null) return false;
+            return _isVoid(dataX, -dataY);
         }
     }
 }
