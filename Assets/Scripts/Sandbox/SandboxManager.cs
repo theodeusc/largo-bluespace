@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Glitchers.EcoKnow.Sandbox.Data;
 using Glitchers.EcoKnow.Sandbox.Grid;
+using Glitchers.EcoKnow.Sandbox.Terrain;
 using Glitchers.EcoKnow.Sandbox.UI;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -78,6 +79,12 @@ namespace Glitchers.EcoKnow.Sandbox
         private List<WinCondition> _winConditions;
         public List<WinCondition> WinConditions => _winConditions;
 
+        // Elevation/shore-distance map exposing per-cell water classification and an upsampled
+        // shore-distance texture. Built once per scenario load. Consumers (e.g. future water
+        // shader binders) read it via the public ElevationMap property.
+        private ElevationMap _elevationMap;
+        public ElevationMap ElevationMap => _elevationMap;
+
         private const string LogChannel = "[SandboxManager]";
 
         #region Lifecycle
@@ -152,6 +159,16 @@ namespace Glitchers.EcoKnow.Sandbox
                 _gridManager?.EnableGrid();
                 _gridManager?.SetupGrid(gridDef);
 
+                //Build elevation map. Provides per-cell water classification and a shore-distance
+                //texture. Currently consumed by no shader; future water-rendering work reads it
+                //via SandboxManager.ElevationMap.
+                if (_gridManager != null)
+                {
+                    _elevationMap?.Dispose();
+                    _elevationMap = new ElevationMap();
+                    _elevationMap.Generate(_gridManager, scenario.Seed);
+                }
+
                 _entityManager?.AddEntitiesToGrid(gridDef, _gridManager);
 
                 //Set up all of our UI
@@ -179,6 +196,9 @@ namespace Glitchers.EcoKnow.Sandbox
         private void Cleanup()
         {
             DataManager.Instance?.ClearData();
+
+            _elevationMap?.Dispose();
+            _elevationMap = null;
 
             _gridManager?.Cleanup();
             _playerInventory.Cleanup();
