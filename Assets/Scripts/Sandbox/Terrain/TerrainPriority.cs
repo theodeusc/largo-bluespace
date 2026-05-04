@@ -14,7 +14,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         public static readonly string[][] Layers =
         {
             new[] { TilesetConstants.Sand, TilesetConstants.Dirt },
-            new[] { TilesetConstants.Grass, TilesetConstants.Sea }
+            new[] { TilesetConstants.Grass, TilesetConstants.Freshwater, TilesetConstants.Sea }
         };
 
         public static readonly Dictionary<int, string[]> ZoneTerrainStacks = new Dictionary<int, string[]>
@@ -22,7 +22,10 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             { 0, new[] { TilesetConstants.Sea, TilesetConstants.Sand } },
             { 1, new[] { TilesetConstants.Sand, TilesetConstants.Dirt } },
             { 2, new[] { TilesetConstants.Grass, TilesetConstants.Dirt } },
-            { 3, new[] { TilesetConstants.Dirt } }
+            { 3, new[] { TilesetConstants.Dirt } },
+            { 4, new[] { TilesetConstants.Freshwater, TilesetConstants.Dirt } },
+            { 5, new[] { TilesetConstants.Freshwater, TilesetConstants.Sand } },
+            { 6, new[] { TilesetConstants.Freshwater, TilesetConstants.Sea, TilesetConstants.Sand } }
         };
 
         public static int LayerOf(string terrain)

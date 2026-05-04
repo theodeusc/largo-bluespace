@@ -43,7 +43,7 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
         private float _baseOrthographicSize;
         private float _currentZoomLevel = 1.0f;
         private const float _minZoomLevel = 0.5f; // 200% zoom in
-        private const float _maxZoomLevel = 2.0f; // 50% zoom out
+        private const float _maxZoomLevel = 5.0f; // 20% zoom in (5x zoom out, fits the 80x40 Largo map with margin)
         [SerializeField] private float _mouseSensitivity = 1.0f;
         [SerializeField] private float _scrollSensitivity = 0.1f;
 

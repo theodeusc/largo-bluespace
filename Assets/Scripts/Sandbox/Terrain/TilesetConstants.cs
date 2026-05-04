@@ -13,15 +13,17 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         public const string Sand = "sand";
         public const string Sea = "sea";
         public const string SeaVoid = "sea_void";
+        public const string Freshwater = "freshwater";
 
-        public static readonly string[] All = { Dirt, Grass, Sand, Sea };
+        public static readonly string[] All = { Dirt, Grass, Sand, Sea, Freshwater };
 
         public static readonly Dictionary<string, Archetype> ToArchetype = new Dictionary<string, Archetype>
         {
             { Dirt, Archetype.Soil },
             { Grass, Archetype.Vegetation },
             { Sand, Archetype.Soil },
-            { Sea, Archetype.Liquid }
+            { Sea, Archetype.Liquid },
+            { Freshwater, Archetype.Liquid }
         };
 
         public static readonly Dictionary<string, string> TilesetPaths = new Dictionary<string, string>
@@ -30,7 +32,8 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             { Grass, "Tiles/Grass/grass_tileset" },
             { Sand, "Tiles/Sand/sand_tileset" },
             { Sea, "Tiles/Sea/sea_tileset" },
-            { SeaVoid, "Tiles/SeaVoid/sea_void" }
+            { SeaVoid, "Tiles/SeaVoid/sea_void" },
+            { Freshwater, "Tiles/Freshwater/freshwater_tileset" }
         };
 
         // Boundary variants are sprite-only — NOT terrains. Do not add to TerrainPriority.Layers.
@@ -38,7 +41,8 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         // data corners is "void" (out-of-bounds OR tileID == -1 in the level JSON).
         public static readonly Dictionary<string, string> VoidVariants = new Dictionary<string, string>
         {
-            { Sea, SeaVoid }
+            { Sea, SeaVoid },
+            { Freshwater, SeaVoid }
         };
 
         // Underlying terrains stamped on water cells (e.g. sand) spill into the boundary halo and
@@ -56,7 +60,8 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             { Dirt, "Tiles/Dirt/dirt_texture" },
             { Grass, "Tiles/Grass/grass_texture" },
             { Sand, "Tiles/Sand/sand_texture" },
-            { Sea, null }
+            { Sea, null },
+            { Freshwater, null }
         };
 
         public static bool IsKnownTileset(string name) =>
