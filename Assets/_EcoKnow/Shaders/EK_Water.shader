@@ -4,9 +4,10 @@ Shader "EcoKnow/Water"
     // ElevationMap altitude texture and per-pixel procedural depth.
     //
     // ElevationMap channel layout consumed by this shader:
-    //   R  — water-type marker (0 land, 0.5 freshwater, 1 sea) — debug only, not branched on
+    //   R  — freshwater visibility (per-cell fresh alpha multiplier — see diffusion block)
     //   G  — shore alpha-blend factor (smootherstep precomputed by ElevationMap)
     //   B  — normalised distance from shore (0 at shore, 1 at deepest)
+    //   A  — sea halo strength (sea cells lerped toward _DiffusionTintColor in this band)
     //
     // Per-pixel sub-cell depth comes from 3-octave value noise driven by the
     // WorldHeightSampler parameters bound at runtime by WaterTintController. Freshwater
@@ -60,6 +61,13 @@ Shader "EcoKnow/Water"
         _DepthBase ("Depth Base", Float) = 0.625
         _DepthAmplitude ("Depth Amplitude", Float) = 0.375
         _DepthCenter ("Depth Center", Float) = 0.35
+
+        [HideInInspector] _WaterType ("Water Type (0=sea, 1=fresh)", Float) = 0
+        _DiffusionFalloffCells ("Diffusion Falloff (cells)", Float) = 2.5
+        _DiffusionTintColor ("Diffusion Tint (sea side)", Color) = (0.227, 0.533, 0.745, 1)
+        _DiffusionTintStrength ("Diffusion Tint Strength", Range(0,1)) = 0.7
+        _SeaUnderFreshStrength ("Sea-Under-Fresh Fade", Range(0,1)) = 0
+        _SeaEdgeAlphaFade ("Sea Edge Alpha Fade", Range(0,1)) = 0.36
     }
 
     SubShader
@@ -143,6 +151,13 @@ Shader "EcoKnow/Water"
             float _DepthAmplitude;
             float _DepthCenter;
 
+            float _WaterType;
+            float _DiffusionFalloffCells;
+            fixed4 _DiffusionTintColor;
+            float _DiffusionTintStrength;
+            float _SeaUnderFreshStrength;
+            float _SeaEdgeAlphaFade;
+
             float hash21(float2 p)
             {
                 p = frac(p * float2(123.34, 456.21));
@@ -192,16 +207,38 @@ Shader "EcoKnow/Water"
             {
                 fixed4 mainColor = tex2D(_MainTex, i.uv);
 
+                // Altitude texture sampled up-front so the sprite-edge passthrough
+                // path can apply the freshwater↔seawater diffusion mask too —
+                // dual-grid edge sprites have white/decorative pixels that bypass
+                // the procedural-water fragment block below.
+                //   R = freshwater visibility (per-cell fresh alpha multiplier)
+                //   G = shore alpha (water↔land smootherstep)
+                //   B = normalised shore distance
+                //   A = sea halo strength (sea cells tinted toward fresh tint)
+                float2 altUV = (i.worldUV - _GridOrigin.xy) / _GridWorldSize.xy;
+                float4 altSample4 = tex2D(_AltitudeTex, altUV);
+
                 // Sea/freshwater tilesets use a blue-channel-saturated interior; floor() snaps
                 // edge pixels (B in [0.5,1.0)) below the threshold so they keep their sprite art.
                 float waterMask = floor(mainColor.b);
                 if (waterMask < 0.5)
                 {
-                    return mainColor * i.color;
+                    fixed4 edge = mainColor * i.color;
+                    if (_WaterType > 0.5)
+                    {
+                        // Fresh sprite-edge pixels feather along the diffusion mask
+                        // so dual-grid edge decorations vanish at the fresh→sea seam.
+                        edge.a *= altSample4.r;
+                    }
+                    else
+                    {
+                        // Sea sprite-edge pixels fade wherever fresh is on top or the
+                        // diffusion plume is strong — A carries both signals (1 in any
+                        // fresh cell, smoothstep fade in the plume, 0 at sea-land).
+                        edge.a *= 1.0 - altSample4.a;
+                    }
+                    return edge;
                 }
-
-                // ---- altitude texture sample (G = shore alpha, B = normalised shore distance) ----
-                float2 altUV = (i.worldUV - _GridOrigin.xy) / _GridWorldSize.xy;
 
                 // Smooth fade past the grid edge so deep water continues into the void halo.
                 float2 outsideDist = max(float2(0, 0), max(-altUV, altUV - 1.0));
@@ -214,7 +251,7 @@ Shader "EcoKnow/Water"
                 float scaledFade = saturate(rawFade * depthScale);
                 float deepFade = 1.0 - (1.0 - scaledFade) * (1.0 - scaledFade);
 
-                float3 altSample = tex2D(_AltitudeTex, altUV).rgb;
+                float3 altSample = altSample4.rgb;
 
                 // Sinkhole pockets locally deepen the colour near shore for visual variety.
                 float2 gridPos = (i.worldUV - _GridOrigin.xy) / _GridWorldSize.xy * _AltitudeTexSize.xy;
@@ -288,6 +325,26 @@ Shader "EcoKnow/Water"
                 float foamEdgeMask = ceil(saturate((blurred.r + blurred.g) * 0.5));
                 float foamAlpha = _FoamColor.a * foamEdgeMask * foamPattern.a;
 
+                // Foam represents shore decoration where water meets land — it shouldn't
+                // appear in the freshwater↔seawater diffusion zone, where the boundary
+                // is a colour mix, not a shore. Both materials gate foam aggressively
+                // with smoothstep so the kill-region has soft edges.
+                if (_WaterType > 0.5)
+                {
+                    // Fresh foam: keep full strength only deep in fresh-only territory
+                    // (R approaches 1). Inside overlap (R≈0.5) and the fresh→sea plume
+                    // (R<0.5) — including the white dual-grid edge sprites that trigger
+                    // foam — kill it.
+                    foamAlpha *= smoothstep(0.5, 0.95, altSample4.r);
+                }
+                else
+                {
+                    // Sea foam: kill anywhere the diffusion plume is non-trivial.
+                    // The previous (1 - A) gate left foam at 35% in cells one step
+                    // outside overlap — too visible. smoothstep gives a wider kill.
+                    foamAlpha *= 1.0 - smoothstep(0.05, 0.4, altSample4.a);
+                }
+
                 waterColor.rgb = lerp(waterColor.rgb, foamRGB, foamAlpha);
 
                 // ---- shore alpha (noisy taper near coastline) ----
@@ -301,6 +358,38 @@ Shader "EcoKnow/Water"
                     shoreAlpha = 1.0 - transparency * (0.25 + noise * 0.1);
                 }
                 waterColor.a = max(shoreAlpha, foamAlpha);
+
+                // ---- freshwater↔seawater diffusion ----
+                // Both diffusion fields are BFS distance fields baked with the same
+                // Perlin perturbation + smootherstep machinery as shore-G — that's
+                // why the boundaries look organic instead of grid-aligned.
+                //   _AltitudeTex.r = freshwater visibility — distance from fresh-only
+                //                    sources, falling off over FreshFalloffCells.
+                //                    1 deep in fresh-only, ~0.5 in overlap one cell out,
+                //                    smooth fade to 0 in pure sea / land.
+                //   _AltitudeTex.a = overlap proximity / "fresh is on top" — distance
+                //                    from overlap sources, falling off over
+                //                    DiffusionFalloffCells. 1 inside overlap, smooth
+                //                    fade through fresh-only and sea cells, 0 elsewhere.
+                if (_WaterType > 0.5)
+                {
+                    waterColor.a *= altSample4.r;
+                }
+                else
+                {
+                    float halo = altSample4.a;
+                    waterColor.rgb = lerp(waterColor.rgb, _DiffusionTintColor.rgb,
+                                          halo * _DiffusionTintStrength);
+                    // Two-stage alpha fade for sea-under-fresh:
+                    //   • _SeaUnderFreshStrength applies linearly with halo across the
+                    //     whole plume — keeps the tinted sea visible far from the seam.
+                    //   • _SeaEdgeAlphaFade reuses foamEdgeMask (binary 1 in the
+                    //     sprite-edge band that foam uses) gated by halo so the fade
+                    //     only fires on dual-grid edge pixels at the sea↔fresh seam —
+                    //     the silhouette — without touching the plume's interior sea.
+                    waterColor.a *= 1.0 - halo * _SeaUnderFreshStrength;
+                    waterColor.a *= 1.0 - foamEdgeMask * halo * _SeaEdgeAlphaFade;
+                }
 
                 return waterColor * i.color;
             }

@@ -58,6 +58,10 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         private static readonly int IdDepthAmplitude = Shader.PropertyToID("_DepthAmplitude");
         private static readonly int IdDepthCenter = Shader.PropertyToID("_DepthCenter");
         private static readonly int IdPixelization = Shader.PropertyToID("_Pixelization");
+        private static readonly int IdWaterType = Shader.PropertyToID("_WaterType");
+        private static readonly int IdDiffusionFalloffCells = Shader.PropertyToID("_DiffusionFalloffCells");
+        private static readonly int IdDiffusionTintColor = Shader.PropertyToID("_DiffusionTintColor");
+        private static readonly int IdDiffusionTintStrength = Shader.PropertyToID("_DiffusionTintStrength");
 
         // Caustic pixel-snap density per cell. Matches the original water rendering pipeline.
         private const float PatchPixels = 32f;
@@ -89,10 +93,12 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             if (_seaAsset != null)
             {
                 _seaInstance = new Material(_seaAsset) { name = _seaAsset.name + " (Instance)" };
+                _seaInstance.SetFloat(IdWaterType, 0f);
             }
             if (_freshAsset != null)
             {
                 _freshInstance = new Material(_freshAsset) { name = _freshAsset.name + " (Instance)" };
+                _freshInstance.SetFloat(IdWaterType, 1f);
             }
         }
 
@@ -175,6 +181,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             ApplyBathymetry(_seaInstance, octaveFreqs, octaveAmps, off0, off1, off2,
                 depthBase, depthAmp, depthCenter);
             ApplyOffsetsOnly(_freshInstance, off0, off1, off2);
+            SyncDiffusionTint();
         }
 
         private static void ApplyGeometry(Material mat, Texture2D altitudeTex,
@@ -211,6 +218,25 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             mat.SetVector(IdOctaveOffset2, off2);
         }
 
+        private void SyncDiffusionTint()
+        {
+            if (_seaInstance == null) return;
+            Color tint;
+            if (_freshInstance != null)
+            {
+                tint = _freshInstance.GetColor(IdShallowColor);
+            }
+            else if (_freshAsset != null)
+            {
+                tint = _freshAsset.GetColor(IdShallowColor);
+            }
+            else
+            {
+                return;
+            }
+            _seaInstance.SetColor(IdDiffusionTintColor, tint);
+        }
+
         public void SetSeawaterTint(Color shallow, Color deep, Color baseTint)
         {
             if (_seaInstance == null) return;
@@ -225,6 +251,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             _freshInstance.SetColor(IdShallowColor, shallow);
             _freshInstance.SetColor(IdDeepColor, deep);
             _freshInstance.SetColor(IdBaseTint, baseTint);
+            SyncDiffusionTint();
         }
 
         /// <summary>
@@ -245,6 +272,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 _freshInstance.SetColor(IdDeepColor, _freshAsset.GetColor(IdDeepColor));
                 _freshInstance.SetColor(IdBaseTint, _freshAsset.GetColor(IdBaseTint));
             }
+            SyncDiffusionTint();
         }
     }
 }

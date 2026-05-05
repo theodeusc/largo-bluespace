@@ -20,17 +20,17 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
     public sealed class ElevationMap
     {
         public const int TextureMultiplier = 8;       // Texels per grid cell for smooth gradients
-        private const float ShoreFalloffCells = 2.5f; // Width of shore alpha-blend band
+        private const float ShoreFalloffCells = 2.5f;       // Width of shore alpha-blend band
+        private const float FreshFalloffCells = 2.0f;       // Width of the freshwater-visibility fade away from fresh-only sources
+        private const float DiffusionFalloffCells = 2.5f;   // Width of the sea-side diffusion plume away from overlap sources
+        private const float DiffusionPerturbCells = 0.5f;   // Perlin amplitude (cells) for organic diffusion boundaries — mirrors shore-G
         private const string LogChannel = "[ElevationMap]";
-
-        // R-channel marker values (debug-only; shader branches on _WaterType material uniform).
-        private const float RLand = 0f;
-        private const float RFreshwater = 0.5f;
-        private const float RSea = 1f;
 
         private bool[,] _isSea;
         private bool[,] _isFreshwater;
         private float[,] _altitudes;
+        private float[,] _freshOnlyDistance;
+        private float[,] _overlapDistance;
         private int _columns;
         private int _rows;
 
@@ -64,6 +64,8 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
 
             ClassifyAllCells(gm);
             ComputeAltitudes();
+            _freshOnlyDistance = ComputeFreshOnlyDistance();
+            _overlapDistance = ComputeOverlapDistance();
             GenerateTexture();
 
             int seaCount = 0, freshCount = 0;
@@ -99,6 +101,8 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             _isSea = null;
             _isFreshwater = null;
             _altitudes = null;
+            _freshOnlyDistance = null;
+            _overlapDistance = null;
         }
 
         // -- internals --
@@ -206,8 +210,79 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                     float tAlpha = Mathf.Clamp01((dist + alphaPerturb) / ShoreFalloffCells);
                     float alphaBlend = tAlpha * tAlpha * tAlpha * (tAlpha * (tAlpha * 6f - 15f) + 10f);
 
-                    float r = SampleWaterTypeMarker(gc, gr);
-                    pixels[ty * texW + tx] = new Color(r, alphaBlend, distNorm, 1f);
+                    // Diffusion R/A — same Perlin+smootherstep machinery as shore-G above,
+                    // but the fade only lives in sea cells. Fresh-only cells, land, and
+                    // sand are pinned to their override values so the bilinear distance
+                    // sample can't leak the fade across fresh↔land boundaries (shore-G
+                    // already handles those). Inside sea cells the BFS distance + Perlin
+                    // perturbation produces the organic wavy boundary the user wants.
+                    int cellCol = Mathf.Clamp(Mathf.RoundToInt(gc), 0, _columns - 1);
+                    int cellRow = Mathf.Clamp(Mathf.RoundToInt(gr), 0, _rows - 1);
+                    bool cellIsSea = _isSea != null && _isSea[cellCol, cellRow];
+                    bool cellIsFresh = _isFreshwater != null && _isFreshwater[cellCol, cellRow];
+
+                    float diffNoise = Mathf.PerlinNoise(
+                        gc * 0.3f + _seedOffsetX + 700f,
+                        gr * 0.3f + _seedOffsetY + 700f
+                    );
+                    float diffPerturb = Mathf.Lerp(-DiffusionPerturbCells, DiffusionPerturbCells, diffNoise);
+
+                    // R — freshwater visibility multiplier consumed by the fresh shader.
+                    float freshR;
+                    if (!cellIsSea)
+                    {
+                        // Fresh-only and land/sand: no diffusion fade. Shore-G handles
+                        // fresh-vs-land at the actual water shore.
+                        freshR = 1f;
+                    }
+                    else
+                    {
+                        float fDist = _freshOnlyDistance != null
+                            ? SampleDistanceField(_freshOnlyDistance, gc, gr)
+                            : float.MaxValue;
+                        if (fDist >= float.MaxValue)
+                        {
+                            freshR = 0f;
+                        }
+                        else
+                        {
+                            float t = Mathf.Clamp01((fDist + diffPerturb) / FreshFalloffCells);
+                            float s = t * t * t * (t * (t * 6f - 15f) + 10f);
+                            freshR = 1f - s;
+                        }
+                    }
+
+                    // A — "freshwater is on top" signal + sea-side halo plume. Sea-side
+                    // shader masks (sprite-edge, foam, procedural alpha) read this.
+                    float seaA;
+                    if (cellIsFresh)
+                    {
+                        // Any fresh cell — fresh on top, hide sea-side artefacts here.
+                        seaA = 1f;
+                    }
+                    else if (cellIsSea)
+                    {
+                        float oDist = _overlapDistance != null
+                            ? SampleDistanceField(_overlapDistance, gc, gr)
+                            : float.MaxValue;
+                        if (oDist >= float.MaxValue)
+                        {
+                            seaA = 0f;
+                        }
+                        else
+                        {
+                            float t = Mathf.Clamp01((oDist + diffPerturb) / DiffusionFalloffCells);
+                            float s = t * t * t * (t * (t * 6f - 15f) + 10f);
+                            seaA = 1f - s;
+                        }
+                    }
+                    else
+                    {
+                        // Land/sand: 0 so sea sprite edges and foam don't fade at sea-land.
+                        seaA = 0f;
+                    }
+
+                    pixels[ty * texW + tx] = new Color(freshR, alphaBlend, distNorm, seaA);
                 }
             }
 
@@ -215,29 +290,39 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             _altitudeTexture.Apply();
         }
 
-        // Debug-friendly water-type marker per texel. Shader branches on the material's _WaterType
-        // uniform, not on this — but storing it makes the texture readable when previewed.
-        private float SampleWaterTypeMarker(float gc, float gr)
-        {
-            int col = Mathf.Clamp(Mathf.RoundToInt(gc), 0, _columns - 1);
-            int row = Mathf.Clamp(Mathf.RoundToInt(gr), 0, _rows - 1);
-            if (_isSea[col, row]) return RSea;
-            if (_isFreshwater[col, row]) return RFreshwater;
-            return RLand;
-        }
-
         private float[,] ComputeLandDistanceField()
         {
-            float[,] dist = new float[_columns, _rows];
+            bool[,] landSource = new bool[_columns, _rows];
             for (int r = 0; r < _rows; r++)
                 for (int c = 0; c < _columns; c++)
-                    dist[c, r] = (_isSea[c, r] || _isFreshwater[c, r]) ? float.MaxValue : 0f;
+                    landSource[c, r] = !_isSea[c, r] && !_isFreshwater[c, r];
+            return ComputeDistanceField(landSource);
+        }
 
+        // 8-connected BFS distance field. Sources are cells where source[c,r] is true.
+        // Returns float[columns,rows] with float.MaxValue at unreached cells.
+        // Diagonal step cost = sqrt(2). Matches the existing shore-distance algorithm.
+        // When traversable is non-null, the BFS only expands into cells where
+        // traversable[c,r] is true (source cells are still seeded regardless).
+        private float[,] ComputeDistanceField(bool[,] source, bool[,] traversable = null)
+        {
+            float[,] dist = new float[_columns, _rows];
             Queue<(int, int)> queue = new Queue<(int, int)>();
             for (int r = 0; r < _rows; r++)
+            {
                 for (int c = 0; c < _columns; c++)
-                    if (!_isSea[c, r] && !_isFreshwater[c, r]) queue.Enqueue((c, r));
-
+                {
+                    if (source[c, r])
+                    {
+                        dist[c, r] = 0f;
+                        queue.Enqueue((c, r));
+                    }
+                    else
+                    {
+                        dist[c, r] = float.MaxValue;
+                    }
+                }
+            }
             while (queue.Count > 0)
             {
                 var (cc, cr) = queue.Dequeue();
@@ -248,7 +333,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                         if (dx == 0 && dy == 0) continue;
                         int nc = cc + dx, nr = cr + dy;
                         if (nc < 0 || nc >= _columns || nr < 0 || nr >= _rows) continue;
-
+                        if (traversable != null && !traversable[nc, nr]) continue;
                         float step = (dx != 0 && dy != 0) ? 1.4142136f : 1f;
                         float newDist = dist[cc, cr] + step;
                         if (newDist < dist[nc, nr])
@@ -259,8 +344,55 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                     }
                 }
             }
-
             return dist;
+        }
+
+        // BFS distance field from fresh-only cells (cells where _isFreshwater
+        // is true and _isSea is false — zone 4, 5 in Largo). Sampled bilinearly
+        // and perturbed at texture-bake time to drive the freshwater visibility
+        // gradient: 1 deep inside fresh-only cells, smoothly fading toward 0
+        // through overlap and adjacent sea cells.
+        private float[,] ComputeFreshOnlyDistance()
+        {
+            if (_isFreshwater == null || _isSea == null) return new float[_columns, _rows];
+            bool[,] source = new bool[_columns, _rows];
+            for (int r = 0; r < _rows; r++)
+                for (int c = 0; c < _columns; c++)
+                    source[c, r] = _isFreshwater[c, r] && !_isSea[c, r];
+            return ComputeDistanceField(source);
+        }
+
+        // BFS distance field from overlap cells (cells where _isFreshwater AND
+        // _isSea both hold — zone 6 in Largo). Drives the sea-side halo plume
+        // and acts as the "freshwater is on top" signal for sea sprite-edge,
+        // foam, and procedural-alpha gating. Returns float.MaxValue everywhere
+        // when no overlap exists (so smoothstep collapses to 0).
+        private float[,] ComputeOverlapDistance()
+        {
+            float[,] empty = new float[_columns, _rows];
+            if (_isFreshwater == null || _isSea == null) return empty;
+
+            bool[,] source = new bool[_columns, _rows];
+            bool any = false;
+            for (int r = 0; r < _rows; r++)
+            {
+                for (int c = 0; c < _columns; c++)
+                {
+                    if (_isFreshwater[c, r] && _isSea[c, r])
+                    {
+                        source[c, r] = true;
+                        any = true;
+                    }
+                }
+            }
+            if (!any)
+            {
+                for (int r = 0; r < _rows; r++)
+                    for (int c = 0; c < _columns; c++)
+                        empty[c, r] = float.MaxValue;
+                return empty;
+            }
+            return ComputeDistanceField(source);
         }
 
         private float ComputeMaxWaterDistance(float[,] landDist)
