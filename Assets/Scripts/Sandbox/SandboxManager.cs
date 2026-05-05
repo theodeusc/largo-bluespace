@@ -61,6 +61,10 @@ namespace Glitchers.EcoKnow.Sandbox
         [SerializeField] private PlayerInventory _playerInventory;
         public PlayerInventory PlayerInventory => _playerInventory;
 
+        [Header("Rendering")]
+        [SerializeField] private WaterTintController _waterTintController;
+        public WaterTintController WaterTintController => _waterTintController;
+
         [Header("UI")]
         [SerializeField] private SandboxUI _sandboxUI;
 
@@ -160,13 +164,23 @@ namespace Glitchers.EcoKnow.Sandbox
                 _gridManager?.SetupGrid(gridDef);
 
                 //Build elevation map. Provides per-cell water classification and a shore-distance
-                //texture. Currently consumed by no shader; future water-rendering work reads it
-                //via SandboxManager.ElevationMap.
+                //texture consumed by the EcoKnow/Water shader (via WaterTintController) and any
+                //future water-rendering features (read it via SandboxManager.ElevationMap).
                 if (_gridManager != null)
                 {
                     _elevationMap?.Dispose();
                     _elevationMap = new ElevationMap();
                     _elevationMap.Generate(_gridManager, scenario.Seed);
+
+                    //Reset water material colours to their authored defaults (so tints from the
+                    //previous scenario don't carry over) and bind the freshly generated
+                    //altitude map + bathymetry parameters to the seawater / freshwater material
+                    //instances. Future entity-count-driven tinting calls into the same controller.
+                    if (_waterTintController != null)
+                    {
+                        _waterTintController.ResetToDefaults();
+                        _waterTintController.BindElevationData(_elevationMap, _gridManager);
+                    }
                 }
 
                 _entityManager?.AddEntitiesToGrid(gridDef, _gridManager);

@@ -121,6 +121,8 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
         public float CellGap => cellGap;
         public int TotalCells => GetComponentsInChildren<Cell>().Length;
         public Vector2 GridSize => new Vector2(columns, rows);
+        public Transform CellContainerTransform => cellContainer;
+        public GridCoords Coords => new GridCoords(cellWidth, cellGap);
         private Camera Camera => gridCamera == null ? Camera.main : gridCamera.Camera;
 
         private const string LogChannel = "[GridManager]";

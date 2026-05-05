@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 namespace Glitchers.EcoKnow.Sandbox.Grid
 {
@@ -31,7 +32,8 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
 
         [Header("Controls")]
-        private Bounds _cameraBounds;
+        // Grid visual extent in world space (viewport is clamped to these).
+        private float _gridLeft, _gridRight, _gridTop, _gridBottom;
         private Vector2 _movementUnits;
 
         [SerializeField] float _movementIntervalDuration;
@@ -39,32 +41,58 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
         [Header("Mouse/Touch Controls")]
         private bool _isDragging = false;
+        private bool _leftMouseStartedOverUI = false;
         private Vector3 _lastMousePosition;
-        private float _baseOrthographicSize;
-        private float _currentZoomLevel = 1.0f;
-        private const float _minZoomLevel = 0.5f; // 200% zoom in
-        private const float _maxZoomLevel = 5.0f; // 20% zoom in (5x zoom out, fits the 80x40 Largo map with margin)
         [SerializeField] private float _mouseSensitivity = 1.0f;
-        [SerializeField] private float _scrollSensitivity = 0.1f;
+
+        [Header("Pixel Perfect")]
+        [SerializeField] private int _assetsPPU = 32;
+        // 640x360 reference resolution — divides evenly into 720p (2x), 1080p (3x), 1440p (4x), 4K (6x).
+        private const int BaseRefResolutionY = 360;
+        private float _baseOrthoSize;
+
+        [Header("Zoom")]
+        [SerializeField] private int _zoomSteps = 24;
+        [Tooltip("Max zoom-in: minimum tiles visible vertically.")]
+        [SerializeField] private float _minTilesVisible = 3f;
+        [Tooltip("Buffer tiles added around populated content for default zoom.")]
+        [SerializeField] private float _contentBuffer = 2f;
+        [Tooltip("Max zoom-out multiplier relative to default (content-fit) zoom.")]
+        [SerializeField] private float _maxZoomOutMultiplier = 3f;
+        private float[] _zoomLevels;
+        private int _currentZoomIndex;
+        private float _currentZoomLevel = 1.0f;
+        private float _pinchZoomAccumulator;
+
+        [Header("Bounds")]
+        [Tooltip("If true, the camera is clamped to the grid extent. Disable to allow panning past the edge of the world.")]
+        [SerializeField] private bool _boundsClampingEnabled = false;
 
         private const string LogChannel = "[GridCamera]";
-
-        [SerializeField] private List<float> zoomValues = new();
-        private int _currentZoomIndex;
 
         public void Init(GridManager gridManager)
         {
             _gridManager = gridManager;
 
+            // Remove any stale PixelPerfectCamera that could override orthographicSize
+            Component ppc = _camera.GetComponent("PixelPerfectCamera");
+            if (ppc != null)
+            {
+                Debug.LogWarning($"{LogChannel} Removing stale PixelPerfectCamera from camera");
+                DestroyImmediate(ppc);
+            }
+
+            // Pixel-perfect base ortho: refResY / (2 * PPU)
+            int ppu = Mathf.Max(1, _assetsPPU);
+            _baseOrthoSize = BaseRefResolutionY / (2f * ppu);
+            _camera.allowMSAA = false;
+
+            ComputeZoomLevels();
+
             CalculateBounds();
             CalculateMovementUnits();
             CenterCamera();
-            _currentZoomIndex = 2;
-            _camera.orthographicSize = zoomValues[_currentZoomIndex];
-            
-            // Initialize mouse/touch controls
-            _baseOrthographicSize = zoomValues[_currentZoomIndex];
-            _currentZoomLevel = 1.0f;
+            ApplyZoom();
         }
 
         public void UpdateInput()
@@ -115,40 +143,46 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
         private void HandleMouseInput()
         {
             // Mouse drag panning with left or middle mouse button
-            bool leftMouseDown = Input.GetMouseButtonDown(0);
+            // Latch: if left-click started over UI, suppress the entire drag until mouse-up
+            if (Input.GetMouseButtonDown(0))
+                _leftMouseStartedOverUI = EventSystem.current != null && EventSystem.current.IsPointerOverGameObject();
+            if (Input.GetMouseButtonUp(0))
+                _leftMouseStartedOverUI = false;
+
+            bool leftMouseDown = !_leftMouseStartedOverUI && Input.GetMouseButtonDown(0);
             bool middleMouseDown = Input.GetMouseButtonDown(2);
-            bool leftMouseHeld = Input.GetMouseButton(0);
+            bool leftMouseHeld = !_leftMouseStartedOverUI && Input.GetMouseButton(0);
             bool middleMouseHeld = Input.GetMouseButton(2);
             bool leftMouseUp = Input.GetMouseButtonUp(0);
             bool middleMouseUp = Input.GetMouseButtonUp(2);
-            
+
             if (leftMouseDown || middleMouseDown)
             {
                 _lastMousePosition = Input.mousePosition;
             }
-            
+
             if (leftMouseHeld || middleMouseHeld)
             {
                 Vector3 currentMousePosition = Input.mousePosition;
                 Vector3 mouseDelta = currentMousePosition - _lastMousePosition;
-                
+
                 // For left mouse: Only start dragging if we've moved enough (prevents accidental drags on clicks)
                 // For middle mouse: Start dragging immediately
                 if (!_isDragging && (middleMouseHeld || mouseDelta.magnitude > 2.0f))
                 {
                     _isDragging = true;
                 }
-                
+
                 if (_isDragging)
                 {
                     // Convert screen space delta to world space
                     Vector3 worldDelta = _camera.ScreenToWorldPoint(new Vector3(mouseDelta.x, mouseDelta.y, _camera.nearClipPlane));
                     worldDelta -= _camera.ScreenToWorldPoint(Vector3.zero);
-                    
+
                     // Apply movement with sensitivity
                     UpdateCameraPositionSmooth(-worldDelta.x * _mouseSensitivity, -worldDelta.y * _mouseSensitivity);
                 }
-                
+
                 _lastMousePosition = currentMousePosition;
             }
             else if (leftMouseUp || middleMouseUp)
@@ -156,11 +190,11 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
                 _isDragging = false;
             }
 
-            // Mouse scroll wheel zoom
+            // Mouse scroll wheel zoom — each notch steps one discrete pixel-perfect level
             float scrollDelta = Input.mouseScrollDelta.y;
             if (Mathf.Abs(scrollDelta) > 0.01f)
             {
-                UpdateScrollZoom(scrollDelta);
+                StepZoomAtPosition(scrollDelta > 0 ? -1 : 1, Input.mousePosition);
             }
         }
 
@@ -171,7 +205,7 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
             if (Input.touchCount == 1)
             {
                 Touch touch = Input.GetTouch(0);
-                
+
                 if (touch.phase == TouchPhase.Began)
                 {
                     _isDragging = true;
@@ -181,14 +215,14 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
                 {
                     Vector3 currentTouchPosition = touch.position;
                     Vector3 touchDelta = currentTouchPosition - _lastMousePosition;
-                    
+
                     // Convert screen space delta to world space
                     Vector3 worldDelta = _camera.ScreenToWorldPoint(new Vector3(touchDelta.x, touchDelta.y, _camera.nearClipPlane));
                     worldDelta -= _camera.ScreenToWorldPoint(Vector3.zero);
-                    
+
                     // Apply movement with sensitivity
                     UpdateCameraPositionSmooth(-worldDelta.x * _mouseSensitivity, -worldDelta.y * _mouseSensitivity);
-                    
+
                     _lastMousePosition = currentTouchPosition;
                 }
                 else if (touch.phase == TouchPhase.Ended || touch.phase == TouchPhase.Canceled)
@@ -200,34 +234,33 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
             else if (Input.touchCount == 2)
             {
                 _isDragging = false;
-                
+
                 Touch touch1 = Input.GetTouch(0);
                 Touch touch2 = Input.GetTouch(1);
-                
+
                 // Get current distance between fingers
                 float currentDistance = Vector2.Distance(touch1.position, touch2.position);
-                
+
                 // Get previous distance between fingers
                 Vector2 touch1PrevPos = touch1.position - touch1.deltaPosition;
                 Vector2 touch2PrevPos = touch2.position - touch2.deltaPosition;
                 float prevDistance = Vector2.Distance(touch1PrevPos, touch2PrevPos);
-                
-                // Calculate zoom delta
-                float deltaDistance = currentDistance - prevDistance;
-                if (Mathf.Abs(deltaDistance) > 1.0f)
+
+                // Accumulate pinch distance — step one zoom level per threshold
+                const float pinchThreshold = 50f;
+                _pinchZoomAccumulator += currentDistance - prevDistance;
+
+                if (Mathf.Abs(_pinchZoomAccumulator) >= pinchThreshold)
                 {
-                    float zoomDelta = deltaDistance * 0.01f;
-                    
-                    // Calculate midpoint between the two touches
                     Vector3 midpoint = (touch1.position + touch2.position) / 2f;
-                    
-                    // Zoom at the midpoint between touches
-                    UpdateScrollZoomAtPosition(zoomDelta, midpoint);
+                    StepZoomAtPosition(_pinchZoomAccumulator > 0 ? -1 : 1, midpoint);
+                    _pinchZoomAccumulator = 0f;
                 }
             }
             else
             {
                 _isDragging = false;
+                _pinchZoomAccumulator = 0f;
             }
 #endif
         }
@@ -242,62 +275,62 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
         private void CalculateBounds()
         {
-            float totalWidth = ((_gridManager.CellScale.x * _gridManager.CellSize.x) + _gridManager.CellGap) * _gridManager.GridSize.x;
-            float totalHeight = ((_gridManager.CellScale.y * _gridManager.CellSize.y) + _gridManager.CellGap) * _gridManager.GridSize.y;
+            float cellStep = _gridManager.Coords.CellStep;
+            float halfCell = cellStep * 0.5f;
+            int cols = (int)_gridManager.GridSize.x;
+            int rows = (int)_gridManager.GridSize.y;
 
-            // Calculate viewport size at maximum zoom out (200% = 2x orthographic size)
-            float maxZoomOutHeight = _baseOrthographicSize * _maxZoomLevel * 2f; // _maxZoomLevel is 2.0
-            float maxZoomOutWidth = maxZoomOutHeight * _camera.aspect;
-            
-            // Calculate viewport size at maximum zoom in (50% = 0.5x orthographic size)  
-            float maxZoomInHeight = _baseOrthographicSize * _minZoomLevel * 2f; // _minZoomLevel is 0.5
-            float maxZoomInWidth = maxZoomInHeight * _camera.aspect;
-            
-            // Bounds should allow camera to show all grid content at any zoom level
-            // When zoomed out, camera needs room to move to show edges
-            // When zoomed in, camera needs even more room to pan across the whole grid
-            
-            float minX = -maxZoomOutWidth / 2f;
-            float maxX = totalWidth + maxZoomOutWidth / 2f;
-            float minY = -totalHeight - maxZoomOutHeight / 2f;
-            float maxY = maxZoomOutHeight / 2f;
-            
-            Vector3 center = new Vector3((minX + maxX) / 2f, (minY + maxY) / 2f, _zPlane);
-            Vector3 size = new Vector3(maxX - minX, maxY - minY, 0f);
-            
-            _cameraBounds = new Bounds(center, size);
+            // Visual tile extent: the dual-grid offset means rendered tiles
+            // extend a full cell beyond the outermost cell centers.
+            _gridLeft = -cellStep;
+            _gridRight = cols * cellStep;
+            _gridTop = cellStep;
+            _gridBottom = -rows * cellStep;
         }
 
         private void CalculateMovementUnits()
         {
-            _movementUnits.x = (_gridManager.CellScale.x * _gridManager.CellSize.x) + _gridManager.CellGap;
-            _movementUnits.y = (_gridManager.CellScale.y * _gridManager.CellSize.y) + _gridManager.CellGap;
+            float cellStep = _gridManager.Coords.CellStep;
+            _movementUnits.x = cellStep;
+            _movementUnits.y = cellStep;
+        }
+
+        public void SetBoundsClampingEnabled(bool enabled)
+        {
+            _boundsClampingEnabled = enabled;
+        }
+
+        public void SetZoomConfig(float contentBuffer, float maxZoomOutMultiplier)
+        {
+            _contentBuffer = contentBuffer;
+            _maxZoomOutMultiplier = maxZoomOutMultiplier;
         }
 
         private Vector3 ClampPositionToBounds(Vector3 requestedPosition)
         {
-            return new Vector3(
-                Mathf.Clamp(requestedPosition.x, _cameraBounds.min.x, _cameraBounds.max.x),
-                Mathf.Clamp(requestedPosition.y, _cameraBounds.min.y, _cameraBounds.max.y),
-                _zPlane
-            );
+            if (!_boundsClampingEnabled)
+                return new Vector3(requestedPosition.x, requestedPosition.y, _zPlane);
+
+            float halfViewH = _camera.orthographicSize;
+            float halfViewW = halfViewH * _camera.aspect;
+
+            float minX = _gridLeft + halfViewW;
+            float maxX = _gridRight - halfViewW;
+            float minY = _gridBottom + halfViewH;
+            float maxY = _gridTop - halfViewH;
+
+            // If the viewport is larger than the grid in a dimension, center on that axis
+            float cx = minX <= maxX ? Mathf.Clamp(requestedPosition.x, minX, maxX) : (_gridLeft + _gridRight) * 0.5f;
+            float cy = minY <= maxY ? Mathf.Clamp(requestedPosition.y, minY, maxY) : (_gridTop + _gridBottom) * 0.5f;
+
+            return new Vector3(cx, cy, _zPlane);
         }
 
         private void UpdateCameraPosition(float moveX, float moveY)
         {
             Vector3 requestedPosition = new Vector3(this.transform.localPosition.x + moveX, this.transform.localPosition.y + moveY, _zPlane);
-
-            if (_cameraBounds.Contains(requestedPosition))
-            {
-                this.transform.localPosition = requestedPosition;
-                _movementIntervalTimer = _movementIntervalDuration;
-            }
-            else
-            {
-                // Clamp to bounds
-                Vector3 clampedPosition = ClampPositionToBounds(requestedPosition);
-                this.transform.localPosition = clampedPosition;
-            }
+            this.transform.localPosition = ClampPositionToBounds(requestedPosition);
+            _movementIntervalTimer = _movementIntervalDuration;
         }
 
         private void UpdateCameraPositionSmooth(float moveX, float moveY)
@@ -343,7 +376,9 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
         public void CenterCamera()
         {
-            this.transform.localPosition = _cameraBounds.center;
+            float cx = (_gridLeft + _gridRight) * 0.5f;
+            float cy = (_gridTop + _gridBottom) * 0.5f;
+            this.transform.localPosition = ClampPositionToBounds(new Vector3(cx, cy, _zPlane));
         }
 
         public void UpdateCameraZoom(CameraZoom zoomDirection)
@@ -351,79 +386,127 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
             switch (zoomDirection)
             {
                 case CameraZoom.INZOOM:
-                    {
-                        if (_currentZoomIndex < zoomValues.Count - 1)
-                        {
-                            _currentZoomIndex++;
-                        }
-                        break;
-                    }
+                    StepZoom(-1);
+                    break;
                 case CameraZoom.OUTZOOM:
-                    {
-                        if (_currentZoomIndex > 0)
-                        {
-                            _currentZoomIndex--;
-                        }
-                        break;
-                    }
+                    StepZoom(1);
+                    break;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(zoomDirection), zoomDirection, null);
             }
-
-            _camera.orthographicSize = zoomValues[_currentZoomIndex];
-            // Sync the continuous zoom level with discrete zoom
-            _currentZoomLevel = _camera.orthographicSize / _baseOrthographicSize;
         }
 
-        private void UpdateScrollZoom(float scrollDelta)
+        /// <summary>
+        /// Step through discrete pixel-perfect zoom levels.
+        /// direction &lt; 0 = zoom in (lower index), direction &gt; 0 = zoom out (higher index).
+        /// </summary>
+        private void StepZoom(int direction)
         {
-            UpdateScrollZoomAtPosition(scrollDelta, Input.mousePosition);
+            int newIndex = Mathf.Clamp(_currentZoomIndex + direction, 0, _zoomLevels.Length - 1);
+            if (newIndex == _currentZoomIndex) return;
+
+            _currentZoomIndex = newIndex;
+            _currentZoomLevel = _zoomLevels[_currentZoomIndex];
+            ApplyZoom();
         }
-        
-        private void UpdateScrollZoomAtPosition(float scrollDelta, Vector3 screenPosition)
+
+        /// <summary>
+        /// Step one zoom level while keeping the world point under screenPosition stable.
+        /// </summary>
+        private void StepZoomAtPosition(int direction, Vector3 screenPosition)
         {
-            // Get world position before zoom
-            Vector3 worldPositionBeforeZoom = _camera.ScreenToWorldPoint(new Vector3(screenPosition.x, screenPosition.y, _camera.nearClipPlane));
-            
-            // Update zoom level
-            float zoomChange = scrollDelta * _scrollSensitivity;
-            float oldZoomLevel = _currentZoomLevel;
-            _currentZoomLevel = Mathf.Clamp(_currentZoomLevel - zoomChange, _minZoomLevel, _maxZoomLevel);
-            
-            // Apply zoom
-            _camera.orthographicSize = _baseOrthographicSize * _currentZoomLevel;
-            
-            // Get world position after zoom
-            Vector3 worldPositionAfterZoom = _camera.ScreenToWorldPoint(new Vector3(screenPosition.x, screenPosition.y, _camera.nearClipPlane));
-            
-            // Calculate the difference and adjust camera position
-            Vector3 worldPositionDifference = worldPositionBeforeZoom - worldPositionAfterZoom;
-            Vector3 newCameraPosition = transform.localPosition + worldPositionDifference;
-            
-            // Apply position with bounds checking
-            UpdateCameraPositionSmooth(worldPositionDifference.x, worldPositionDifference.y);
+            int newIndex = Mathf.Clamp(_currentZoomIndex + direction, 0, _zoomLevels.Length - 1);
+            if (newIndex == _currentZoomIndex) return;
+
+            Vector3 worldPosBefore = _camera.ScreenToWorldPoint(new Vector3(screenPosition.x, screenPosition.y, _camera.nearClipPlane));
+
+            _currentZoomIndex = newIndex;
+            _currentZoomLevel = _zoomLevels[_currentZoomIndex];
+            ApplyZoom();
+
+            Vector3 worldPosAfter = _camera.ScreenToWorldPoint(new Vector3(screenPosition.x, screenPosition.y, _camera.nearClipPlane));
+            Vector3 diff = worldPosBefore - worldPosAfter;
+            UpdateCameraPositionSmooth(diff.x, diff.y);
         }
 
         public void ResetCameraToDefault()
         {
-            // Reset position to center
             CenterCamera();
-            
-            // Reset zoom to 100% (base level)
-            _currentZoomLevel = 1.0f;
-            _camera.orthographicSize = _baseOrthographicSize;
-            
-            // Also reset discrete zoom index
-            _currentZoomIndex = 2;
+            // Snap back to the level closest to 1.0
+            _currentZoomIndex = FindClosestZoomIndex(1.0f);
+            _currentZoomLevel = _zoomLevels[_currentZoomIndex];
+            ApplyZoom();
         }
-        
-        // Public method to get current zoom percentage for UI display
+
+        private void ApplyZoom()
+        {
+            _camera.orthographicSize = _baseOrthoSize * _currentZoomLevel;
+        }
+
+        /// <summary>
+        /// Recompute zoom levels after entity data is available.
+        /// contentTiles = max dimension of populated cells (in tile count).
+        /// Default zoom fits contentTiles + buffer; max zoom-out is a multiplier of that.
+        /// </summary>
+        public void FitToContent(float contentTiles)
+        {
+            float defaultTiles = contentTiles + _contentBuffer;
+            float defaultZoom = defaultTiles / (_baseOrthoSize * 2f);
+
+            ComputeZoomLevels(defaultZoom);
+
+            CalculateBounds();
+            CenterCamera();
+            ApplyZoom();
+        }
+
+        /// <summary>
+        /// Build logarithmically-spaced zoom levels.
+        /// defaultZoom = the zoom multiplier where the default view fits the content.
+        /// </summary>
+        private void ComputeZoomLevels(float defaultZoom = 1.0f)
+        {
+            float baseTilesVisible = _baseOrthoSize * 2f;
+            float minZoom = Mathf.Max(0.01f, _minTilesVisible / baseTilesVisible);
+            float maxZoom = Mathf.Max(minZoom + 0.01f, defaultZoom * _maxZoomOutMultiplier);
+
+            int steps = Mathf.Max(2, _zoomSteps);
+            _zoomLevels = new float[steps + 1];
+
+            float logMin = Mathf.Log(minZoom);
+            float logMax = Mathf.Log(maxZoom);
+
+            for (int i = 0; i <= steps; i++)
+            {
+                float t = i / (float)steps;
+                _zoomLevels[i] = Mathf.Exp(Mathf.Lerp(logMin, logMax, t));
+            }
+
+            _currentZoomIndex = FindClosestZoomIndex(defaultZoom);
+            _currentZoomLevel = _zoomLevels[_currentZoomIndex];
+        }
+
+        private int FindClosestZoomIndex(float target)
+        {
+            int best = 0;
+            float bestDist = Mathf.Abs(_zoomLevels[0] - target);
+            for (int i = 1; i < _zoomLevels.Length; i++)
+            {
+                float dist = Mathf.Abs(_zoomLevels[i] - target);
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    best = i;
+                }
+            }
+            return best;
+        }
+
         public float GetCurrentZoomPercentage()
         {
             return (1.0f / _currentZoomLevel) * 100f;
         }
-        
-        // Public method to check if camera is currently being dragged
+
         public bool IsDragging()
         {
             return _isDragging;

@@ -20,9 +20,13 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
     /// </remarks>
     public sealed class DualGridTerrainRenderer : MonoBehaviour
     {
+        // Per-terrain Material asset (soil/grass/sand) plus an opt-in runtime override
+        // for the sea/freshwater materials via WaterTintController. Resolved per visual
+        // tilemap as soon as the tilemap is created.
+        [SerializeField] private TerrainShaderConfig _shaderConfig;
+
         // 16-entry marching-squares lookup. Tuple order: (TopLeft, TopRight, BottomLeft, BottomRight).
-        // Index 12 represents the all-empty case (no tile drawn). Verbatim port of the table in
-        // creator_old/Assets/Scripts/Sandbox/Terrain/DualGridTerrainRenderer.cs.
+        // Index 12 represents the all-empty case (no tile drawn).
         private static readonly Dictionary<(bool, bool, bool, bool), int> NeighbourToTileIndex =
             new Dictionary<(bool, bool, bool, bool), int>
             {
@@ -360,15 +364,66 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 // LayerZStep, with within-layer rank 0 receiving the most-negative z so it
                 // renders on top of higher-rank entries within the same layer.
                 float z = -layer * LayerZStep - (layerLength - 1 - withinRank) * WithinLayerZStep;
+                // Cell prefab in scene_Sandbox has SpriteRenderers at sortingOrder 1 and 2.
+                // Offset tilemap rendering well above to ensure dual-grid visuals always
+                // sit on top of any cell-level overlays (zone colour markers, highlights).
+                const int TerrainSortingOrderBase = 10;
                 _visualTilemaps[terrain] = CreateChildTilemap(
                     childName: $"Visual_{terrain}",
                     localPos: GridCoords.VisualTilemapOffset(z),
-                    sortingOrder: layer,
+                    sortingOrder: TerrainSortingOrderBase + layer,
                     rendererEnabled: true
                 );
+                ApplyMaterialFor(terrain);
             }
 
             _hierarchyBuilt = true;
+        }
+
+        // Picks the right Material for a terrain. WaterTintController (when present in the
+        // scene) wins for sea/freshwater so per-instance clones drive the visual; otherwise
+        // the asset reference from TerrainShaderConfig is used directly. Returns null when
+        // neither source has a binding — Tilemap then renders with Unity's default sprite material.
+        private Material ResolveMaterial(string terrain)
+        {
+            WaterTintController tint = WaterTintController.Instance;
+            if (tint != null)
+            {
+                Material runtime = tint.GetMaterialFor(terrain);
+                if (runtime != null) return runtime;
+            }
+            return _shaderConfig != null ? _shaderConfig.GetMaterial(terrain) : null;
+        }
+
+        private void ApplyMaterialFor(string terrain)
+        {
+            if (!_visualTilemaps.TryGetValue(terrain, out Tilemap tm) || tm == null) return;
+            Material mat = ResolveMaterial(terrain);
+            if (mat == null) return;
+            TilemapRenderer r = tm.GetComponent<TilemapRenderer>();
+            if (r != null) r.sharedMaterial = mat;
+
+            // Force pixel-perfect sampling on the overlay texture. The import meta
+            // ships with these settings, but enforcing them at runtime guards against
+            // drift if someone re-imports with different defaults.
+            Texture overlay = mat.GetTexture("_OverlayTex");
+            if (overlay != null)
+            {
+                overlay.wrapMode = TextureWrapMode.Repeat;
+                overlay.filterMode = FilterMode.Point;
+            }
+        }
+
+        // Re-resolves and re-assigns the Material on every visual tilemap. Safe to call
+        // after WaterTintController.Awake (so the runtime water instances are picked up
+        // even if the renderer's hierarchy was built first).
+        public void RefreshMaterials()
+        {
+            if (_visualTilemaps == null) return;
+            foreach (var pair in _visualTilemaps)
+            {
+                ApplyMaterialFor(pair.Key);
+            }
         }
 
         // Aligns the renderer so data tile (col, -row) is concentric with the cell at (col, row).
