@@ -14,8 +14,9 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         public const string Sea = "sea";
         public const string SeaVoid = "sea_void";
         public const string Freshwater = "freshwater";
+        public const string Crops = "crops";
 
-        public static readonly string[] All = { Dirt, Grass, Sand, Sea, Freshwater };
+        public static readonly string[] All = { Dirt, Grass, Sand, Sea, Freshwater, Crops };
 
         public static readonly Dictionary<string, Archetype> ToArchetype = new Dictionary<string, Archetype>
         {
@@ -23,7 +24,8 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             { Grass, Archetype.Vegetation },
             { Sand, Archetype.Soil },
             { Sea, Archetype.Liquid },
-            { Freshwater, Archetype.Liquid }
+            { Freshwater, Archetype.Liquid },
+            { Crops, Archetype.Vegetation },
         };
 
         public static readonly Dictionary<string, string> TilesetPaths = new Dictionary<string, string>
@@ -33,7 +35,8 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             { Sand, "Tiles/Sand/sand_tileset" },
             { Sea, "Tiles/Sea/sea_tileset" },
             { SeaVoid, "Tiles/SeaVoid/sea_void" },
-            { Freshwater, "Tiles/Freshwater/freshwater_tileset" }
+            { Freshwater, "Tiles/Freshwater/freshwater_tileset" },
+            { Crops, "Tiles/Crops/crops_tileset" }
         };
 
         // Boundary variants are sprite-only — NOT terrains. Do not add to TerrainPriority.Layers.
@@ -61,7 +64,8 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             { Grass, "Tiles/Grass/grass_texture" },
             { Sand, "Tiles/Sand/sand_texture" },
             { Sea, null },
-            { Freshwater, null }
+            { Freshwater, null },
+            { Crops, "Tiles/Crops/crops_texture" }
         };
 
         public static bool IsKnownTileset(string name) =>

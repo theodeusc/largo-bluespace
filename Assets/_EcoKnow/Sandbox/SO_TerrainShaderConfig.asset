@@ -23,3 +23,5 @@ MonoBehaviour:
     Material: {fileID: 2100000, guid: e6f67ec1f0e743b88c70b9f3c0b1a1b6, type: 2}
   - Terrain: freshwater
     Material: {fileID: 2100000, guid: e7a77ec1f0e743b88c70b9f3c0b1a1b7, type: 2}
+  - Terrain: crops
+    Material: {fileID: 2100000, guid: 0f4a4a05bfa34791a537f0c2f4e4d6d7, type: 2}
