@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Collections.Generic;
 using Glitchers.EcoKnow.Sandbox.Grid;
+using Glitchers.EcoKnow.Sandbox.Grid.Regions;
 using UnityEngine;
 
 namespace Glitchers.EcoKnow.Sandbox
@@ -22,6 +23,12 @@ namespace Glitchers.EcoKnow.Sandbox
             {
                 for (int row = 0; row < entityLookupTable.GetLongLength(1); row++)
                 {
+                    // Region-wide compute: skip visual cells (only the region's compute cell ticks).
+                    if (!entityManager.ShouldComputeCell(column, row))
+                    {
+                        continue;
+                    }
+
                     CellEntity[] entityList = entityManager.GetEntitiesForCell(column, row);
 
                     if ((entityList == null) || (entityList.Length <= 0))
@@ -100,6 +107,16 @@ namespace Glitchers.EcoKnow.Sandbox
             if (entityManager == null)
             {
                 Debug.LogError($"[{Name()} Calculator] EntityManager is null! Aborting calculations...");
+                return;
+            }
+
+            // Region-wide compute: replace per-cell 8-neighbour movement with region-to-region hops.
+            // Empty RegionMovementPolicy table = no movement (default). Specific flows (e.g. water
+            // pollution across Freshwater/Estuary/Seawater/Overflow) are enabled by populating the
+            // policy table during scenario setup.
+            if (entityManager.IsRegionMode)
+            {
+                RegionMovement.Run(entityManager, entityManager.RegionComputeManager);
                 return;
             }
 

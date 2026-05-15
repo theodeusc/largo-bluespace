@@ -27,7 +27,8 @@ public record Scenario
         WinConditionRecord[] WinConditions,
         Matrix Matrix,
         MapLayout Map,
-        Matrix[] Matrices = null
+        Matrix[] Matrices = null,
+        bool UseRegionWideCompute = false
     );
 
 //Header info

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Glitchers.EcoKnow.Sandbox.Grid;
+using Glitchers.EcoKnow.Sandbox.Grid.Regions;
 using UnityEngine;
 
 namespace Glitchers.EcoKnow.Sandbox
@@ -68,6 +69,13 @@ namespace Glitchers.EcoKnow.Sandbox
 
         public EntityEvent onEntityHarvested;
         public EntityEvent onEntityIntroduced;
+
+        // Region-wide compute mode (scenario-level toggle). When non-null and active,
+        // only "compute" cells (one per region) hold real entity populations; "visual"
+        // cells are zeroed at scenario load and skipped by the calculators.
+        private RegionComputeManager _regionComputeManager;
+        public RegionComputeManager RegionComputeManager => _regionComputeManager;
+        public bool IsRegionMode => _regionComputeManager != null && _regionComputeManager.IsActive;
 
         private const string LogChannel = "[EntityManager]";
 
@@ -185,6 +193,49 @@ namespace Glitchers.EcoKnow.Sandbox
             }
 
             return SandboxManager.Instance.GridManager.GetZoneType(column, row);
+        }
+        #endregion
+
+        #region Region Mode
+        public void SetRegionMode(RegionComputeManager manager)
+        {
+            _regionComputeManager = manager;
+        }
+
+        public CellType GetCellType(int column, int row)
+        {
+            if (_regionComputeManager == null) return CellType.Compute;
+            return _regionComputeManager.GetCellType(column, row);
+        }
+
+        // Calculator gate: cells return false here are skipped by the per-cell maths.
+        // Returns true when region mode is off (every cell computes) or when the cell
+        // is the region's compute cell.
+        public bool ShouldComputeCell(int column, int row)
+        {
+            if (_regionComputeManager == null || !_regionComputeManager.IsActive) return true;
+            return _regionComputeManager.GetCellType(column, row) == CellType.Compute;
+        }
+
+        // Direct lookup-table access used by the aggregation/seed steps in RegionComputeManager
+        // and RegionMovement. Bypasses every higher-level helper so the manager can rewrite
+        // populations without recursion.
+        public int RawGetPopulation(int column, int row, int index)
+        {
+            if (_entityLookupTable == null) return -1;
+            if (column < 0 || column >= _entityLookupTable.GetLongLength(0)) return -1;
+            if (row < 0 || row >= _entityLookupTable.GetLongLength(1)) return -1;
+            if (index < 0 || index >= _entityLookupTable.GetLongLength(2)) return -1;
+            return _entityLookupTable[column, row, index];
+        }
+
+        public void RawSetPopulation(int column, int row, int index, int value)
+        {
+            if (_entityLookupTable == null) return;
+            if (column < 0 || column >= _entityLookupTable.GetLongLength(0)) return;
+            if (row < 0 || row >= _entityLookupTable.GetLongLength(1)) return;
+            if (index < 0 || index >= _entityLookupTable.GetLongLength(2)) return;
+            _entityLookupTable[column, row, index] = value;
         }
         #endregion
 

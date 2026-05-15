@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Glitchers.EcoKnow.Sandbox.Data;
 using Glitchers.EcoKnow.Sandbox.Grid;
+using Glitchers.EcoKnow.Sandbox.Grid.Regions;
 using Glitchers.EcoKnow.Sandbox.Terrain;
 using Glitchers.EcoKnow.Sandbox.UI;
 using UnityEngine;
@@ -88,6 +89,12 @@ namespace Glitchers.EcoKnow.Sandbox
         // shader binders) read it via the public ElevationMap property.
         private ElevationMap _elevationMap;
         public ElevationMap ElevationMap => _elevationMap;
+
+        // Static region map built once per scenario when Scenario.UseRegionWideCompute is true.
+        // Owns the cell -> region mapping and the region adjacency graph used by region-mode
+        // movement. Null when region mode is off.
+        private RegionComputeManager _regionComputeManager;
+        public RegionComputeManager RegionComputeManager => _regionComputeManager;
 
         private const string LogChannel = "[SandboxManager]";
 
@@ -185,6 +192,22 @@ namespace Glitchers.EcoKnow.Sandbox
 
                 _entityManager?.AddEntitiesToGrid(gridDef, _gridManager);
 
+                // Region-wide compute: one-shot region build at scenario load when the toggle is on.
+                // After Initialize each region has a single compute cell holding the region's total
+                // population; visual cells are zeroed and skipped by the calculators thereafter.
+                // RegionComputeManager is the SSOT for cell->region mapping and never mutates again
+                // for the life of this scenario. RegionMovementPolicy stays empty by default — add
+                // per-entity rules (e.g. water pollution across freshwater/estuary/seawater/overflow)
+                // to enable specific region-to-region flows.
+                _regionComputeManager = null;
+                _entityManager?.SetRegionMode(null);
+                if (scenario.UseRegionWideCompute && _entityManager != null && _gridManager != null)
+                {
+                    _regionComputeManager = new RegionComputeManager();
+                    _regionComputeManager.Initialize(_gridManager, _entityManager);
+                    _entityManager.SetRegionMode(_regionComputeManager);
+                }
+
                 //Set up all of our UI
                 _sandboxUI?.Init(scenario, _entityManager, _winConditions.ToArray(), _playerInventory);
 
@@ -213,6 +236,9 @@ namespace Glitchers.EcoKnow.Sandbox
 
             _elevationMap?.Dispose();
             _elevationMap = null;
+
+            _entityManager?.SetRegionMode(null);
+            _regionComputeManager = null;
 
             _gridManager?.Cleanup();
             _playerInventory.Cleanup();

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Glitchers.EcoKnow.Sandbox.Grid.Regions;
 using UnityEngine;
 using UnityEngine.UI.Extensions;
 
@@ -167,8 +168,18 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
         public void UpdateEntityCount()
         {
+            // Region-wide compute: visual cells render no tokens. Only the region's compute cell shows entities.
+            if (IsVisualInRegionMode()) return;
+
             CellEntity[] entities = GetCellEntities();
             UpdateTokens(entities);
+        }
+
+        private bool IsVisualInRegionMode()
+        {
+            EntityManager em = SandboxManager.Instance != null ? SandboxManager.Instance.EntityManager : null;
+            if (em == null || !em.IsRegionMode) return false;
+            return em.GetCellType(_column, _row) == CellType.Visual;
         }
 
         public void ClearEntityTokens()
@@ -194,6 +205,11 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
                 Debug.LogError($"{LogChannel} Failed to spawn tokens at Cell Row {_row} / Column {_column}, token prefab or token container is null!");
                 return;
             }
+
+            // Region-wide compute: visual cells don't render entities. Skip token setup so they
+            // stay clean — UpdateEntityCount is also gated, so the empty container never tries
+            // to update non-existent tokens.
+            if (IsVisualInRegionMode()) return;
 
             EntityManager entityManager = SandboxManager.Instance.EntityManager;
             if (entityManager != null)

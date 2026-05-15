@@ -10,6 +10,7 @@
     "ActionsPerRound": 1,
     "StartCurrency": 0,
     "Seed": 0,
+    "UseRegionWideCompute": true,
     "Entities": [
       {
         "ID": "autoTilePlaceholder",
