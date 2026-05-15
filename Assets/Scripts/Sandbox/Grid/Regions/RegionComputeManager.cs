@@ -169,6 +169,21 @@ namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
             return Enumerable.Empty<int>();
         }
 
+        // Read-only view over the cells that make up a region. Consumers (e.g. the
+        // pixel-art entity sampler) need to enumerate every cell of a region to
+        // distribute sprites across it; the flood-fill already owns this list, so
+        // we expose it directly rather than rebuilding from _cellToRegion.
+        private static readonly IReadOnlyList<(int col, int row)> EmptyRegionCells =
+            new List<(int col, int row)>().AsReadOnly();
+        public IReadOnlyList<(int col, int row)> GetRegionCells(int regionId)
+        {
+            if (_regionCells.TryGetValue(regionId, out List<(int col, int row)> cells))
+            {
+                return cells;
+            }
+            return EmptyRegionCells;
+        }
+
         private void FloodAllSeeds(
             GridManager gridManager,
             bool[,] visited,

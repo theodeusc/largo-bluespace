@@ -52,12 +52,11 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         private const int FullTileIndex = 6;
 
         // Within-layer z-step keeps adjacent terrains on the same sortingOrder from z-fighting.
-        // Matches the sand sub-layer offset used in creator_old.
-        private const float WithinLayerZStep = 0.005f;
-
-        // Per-layer z-step. Strictly larger than (max-within-layer-rank) * WithinLayerZStep so
-        // layers never overlap in z. Matches the per-priority offset used in creator_old.
-        private const float LayerZStep = 0.01f;
+        // Per-layer z-step is strictly larger than (max-within-layer-rank) * WithinLayerZStep so
+        // layers never overlap in z. Both constants live on TerrainPriority so non-terrain
+        // renderers (e.g. PixelArtEntityRenderer) can compute matching z values.
+        private const float WithinLayerZStep = TerrainPriority.WithinLayerZStep;
+        private const float LayerZStep = TerrainPriority.LayerZStep;
 
         private GridCoords _coords;
         private int _columns;
@@ -367,11 +366,10 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 // Cell prefab in scene_Sandbox has SpriteRenderers at sortingOrder 1 and 2.
                 // Offset tilemap rendering well above to ensure dual-grid visuals always
                 // sit on top of any cell-level overlays (zone colour markers, highlights).
-                const int TerrainSortingOrderBase = 10;
                 _visualTilemaps[terrain] = CreateChildTilemap(
                     childName: $"Visual_{terrain}",
                     localPos: GridCoords.VisualTilemapOffset(z),
-                    sortingOrder: TerrainSortingOrderBase + layer,
+                    sortingOrder: TerrainPriority.TerrainSortingOrderBase + layer,
                     rendererEnabled: true
                 );
                 ApplyMaterialFor(terrain);

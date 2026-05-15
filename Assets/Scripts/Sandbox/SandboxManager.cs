@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -96,6 +97,14 @@ namespace Glitchers.EcoKnow.Sandbox
         private RegionComputeManager _regionComputeManager;
         public RegionComputeManager RegionComputeManager => _regionComputeManager;
 
+        // Fires once per scenario start after grid/entities/region-init are complete and just
+        // before SandboxUI initialises. Late enough that RegionComputeManager (if used) is
+        // fully built and EntityManager has its lookup table populated; early enough that
+        // listeners can place pixel-art entities, debug overlays, etc. before the first frame
+        // is presented. Subscribers MUST be resilient to the event firing multiple times across
+        // replays (use Cleanup hooks or idempotent setup).
+        public event Action OnScenarioReady;
+
         private const string LogChannel = "[SandboxManager]";
 
         #region Lifecycle
@@ -127,7 +136,7 @@ namespace Glitchers.EcoKnow.Sandbox
                 Cleanup();
 
                 //Setup Random
-                Random.InitState(scenario.Seed);
+                UnityEngine.Random.InitState(scenario.Seed);
 
                 //Setup rounds
                 _currentRound = -1;
@@ -207,6 +216,11 @@ namespace Glitchers.EcoKnow.Sandbox
                     _regionComputeManager.Initialize(_gridManager, _entityManager);
                     _entityManager.SetRegionMode(_regionComputeManager);
                 }
+
+                //Notify late-stage listeners (e.g. pixel-art entity spawner) that the
+                //scenario is fully wired up. Fire BEFORE UI init so any sprites placed in
+                //response are part of the first frame the player sees.
+                OnScenarioReady?.Invoke();
 
                 //Set up all of our UI
                 _sandboxUI?.Init(scenario, _entityManager, _winConditions.ToArray(), _playerInventory);

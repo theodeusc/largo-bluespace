@@ -77,5 +77,36 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 }
             }
         }
+
+        // Sorting/Z helpers for renderables that need to slot above a named terrain
+        // but below whatever terrain sits in the next layer. Mirror the constants used
+        // by DualGridTerrainRenderer so the two stay aligned to one source of truth.
+        public const int TerrainSortingOrderBase = 10;
+        public const float LayerZStep = 0.01f;
+        public const float WithinLayerZStep = 0.005f;
+
+        // Returns the sortingOrder used by the visual tilemap of the given terrain.
+        // Pixel-art entities that should render between two terrain layers use the
+        // sortingOrder of the LOWER layer and rely on z within that order to draw above
+        // the terrain's own tilemap; the next layer's higher sortingOrder still wins.
+        public static int SortingOrderOf(string terrain)
+        {
+            int layer = LayerOf(terrain);
+            return layer < 0 ? TerrainSortingOrderBase : TerrainSortingOrderBase + layer;
+        }
+
+        // Returns a z value placing a renderable IMMEDIATELY above the given terrain's
+        // visual tilemap within the same sortingOrder. More-negative z draws later in
+        // Unity's transparency sort, so we subtract half a within-layer step from the
+        // terrain's own z to land between it and the next-higher within-layer entry.
+        public static float ZAbove(string terrain)
+        {
+            int layer = LayerOf(terrain);
+            int withinRank = WithinLayerRank(terrain);
+            if (layer < 0 || withinRank < 0) return 0f;
+            int layerLength = Layers[layer].Length;
+            float terrainZ = -layer * LayerZStep - (layerLength - 1 - withinRank) * WithinLayerZStep;
+            return terrainZ - WithinLayerZStep * 0.5f;
+        }
     }
 }
