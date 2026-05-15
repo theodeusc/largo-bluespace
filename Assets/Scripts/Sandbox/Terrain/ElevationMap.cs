@@ -24,13 +24,17 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         private const float FreshFalloffCells = 2.0f;       // Width of the freshwater-visibility fade away from fresh-only sources
         private const float DiffusionFalloffCells = 2.5f;   // Width of the sea-side diffusion plume away from overlap sources
         private const float DiffusionPerturbCells = 0.5f;   // Perlin amplitude (cells) for organic diffusion boundaries — mirrors shore-G
+        private const float OverflowFalloffCells = 3.0f;    // Width of the brown overflow tint plume away from overflow source cells
         private const string LogChannel = "[ElevationMap]";
 
         private bool[,] _isSea;
         private bool[,] _isFreshwater;
+        private bool[,] _isOverflow;
+        private bool[,] _isFreshOnSand;
         private float[,] _altitudes;
         private float[,] _freshOnlyDistance;
         private float[,] _overlapDistance;
+        private float[,] _overflowDistance;
         private int _columns;
         private int _rows;
 
@@ -39,6 +43,12 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
 
         private Texture2D _altitudeTexture;
         public Texture2D AltitudeTexture => _altitudeTexture;
+
+        private Texture2D _overflowTexture;
+        public Texture2D OverflowTexture => _overflowTexture;
+
+        private Texture2D _freshSandTexture;
+        public Texture2D FreshSandTexture => _freshSandTexture;
 
         private WorldHeightSampler _heightSampler;
         public WorldHeightSampler HeightSampler => _heightSampler;
@@ -60,24 +70,30 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
 
             _isSea = new bool[_columns, _rows];
             _isFreshwater = new bool[_columns, _rows];
+            _isOverflow = new bool[_columns, _rows];
+            _isFreshOnSand = new bool[_columns, _rows];
             _altitudes = new float[_columns, _rows];
 
             ClassifyAllCells(gm);
             ComputeAltitudes();
             _freshOnlyDistance = ComputeFreshOnlyDistance();
             _overlapDistance = ComputeOverlapDistance();
+            _overflowDistance = ComputeOverflowDistance();
             GenerateTexture();
+            GenerateOverflowTexture();
+            GenerateFreshSandTexture();
 
-            int seaCount = 0, freshCount = 0;
+            int seaCount = 0, freshCount = 0, overflowCount = 0;
             for (int r = 0; r < _rows; r++)
                 for (int c = 0; c < _columns; c++)
                 {
                     if (_isSea[c, r]) seaCount++;
                     if (_isFreshwater[c, r]) freshCount++;
+                    if (_isOverflow[c, r]) overflowCount++;
                 }
 
             Debug.Log($"{LogChannel} Generated {_columns}x{_rows} altitude map " +
-                      $"({seaCount} sea, {freshCount} freshwater).");
+                      $"({seaCount} sea, {freshCount} freshwater, {overflowCount} overflow).");
         }
 
         public bool IsSea(int col, int row) =>
@@ -91,6 +107,12 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         public float GetAltitude(int col, int row) =>
             InBounds(col, row) && _altitudes != null ? _altitudes[col, row] : 0f;
 
+        public bool IsOverflow(int col, int row) =>
+            InBounds(col, row) && _isOverflow != null && _isOverflow[col, row];
+
+        public bool IsFreshOnSand(int col, int row) =>
+            InBounds(col, row) && _isFreshOnSand != null && _isFreshOnSand[col, row];
+
         public void Dispose()
         {
             if (_altitudeTexture != null)
@@ -98,11 +120,24 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 Object.Destroy(_altitudeTexture);
                 _altitudeTexture = null;
             }
+            if (_overflowTexture != null)
+            {
+                Object.Destroy(_overflowTexture);
+                _overflowTexture = null;
+            }
+            if (_freshSandTexture != null)
+            {
+                Object.Destroy(_freshSandTexture);
+                _freshSandTexture = null;
+            }
             _isSea = null;
             _isFreshwater = null;
+            _isOverflow = null;
+            _isFreshOnSand = null;
             _altitudes = null;
             _freshOnlyDistance = null;
             _overlapDistance = null;
+            _overflowDistance = null;
         }
 
         // -- internals --
@@ -122,19 +157,29 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                     }
 
                     int zoneId = gm.GetZoneType(col, row);
-                    ClassifyCell(zoneId, out bool hasSea, out bool hasFresh);
+                    ClassifyCell(zoneId, out bool hasSea, out bool hasFresh, out bool hasOverflow, out bool hasSand);
                     _isSea[col, row] = hasSea;
                     _isFreshwater[col, row] = hasFresh;
+                    _isOverflow[col, row] = hasOverflow;
+                    _isFreshOnSand[col, row] = hasFresh && hasSand;
                 }
             }
         }
 
         // Reads the SSOT zone-stack mapping and reports which Liquid terrains the zone contains.
+        // Overflow cells set hasSea=true so shore alpha and the existing fresh↔sea diffusion
+        // treat them as ordinary seawater; the brown overflow tint comes from a separate
+        // distance-field texture sampled by the shader.
+        // hasSand reports whether Sand is also in the stack — combined with hasFreshwater,
+        // this drives the per-cell sandbed-show-through alpha mask in the freshwater shader
+        // (so estuary/river-mouth cells render slightly translucent over the sand they cover).
         // TODO(dynamic-zones): replace with zone-metadata lookup when dynamic zones return.
-        private static void ClassifyCell(int zoneId, out bool hasSea, out bool hasFreshwater)
+        private static void ClassifyCell(int zoneId, out bool hasSea, out bool hasFreshwater, out bool hasOverflow, out bool hasSand)
         {
             hasSea = false;
             hasFreshwater = false;
+            hasOverflow = false;
+            hasSand = false;
             if (!TerrainPriority.ZoneTerrainStacks.TryGetValue(zoneId, out string[] terrains))
             {
                 return;
@@ -144,6 +189,8 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 string t = terrains[i];
                 if (t == TilesetConstants.Sea) hasSea = true;
                 else if (t == TilesetConstants.Freshwater) hasFreshwater = true;
+                else if (t == TilesetConstants.Overflow) { hasOverflow = true; hasSea = true; }
+                else if (t == TilesetConstants.Sand) hasSand = true;
             }
         }
 
@@ -393,6 +440,139 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 return empty;
             }
             return ComputeDistanceField(source);
+        }
+
+        // BFS distance field from overflow source cells (cells whose zone stack
+        // contains "overflow" — zone 8 in Largo). Drives the brown shader tint
+        // that the sea branch of EK_Water lerps toward, with smootherstep
+        // falloff over OverflowFalloffCells. Returns float.MaxValue everywhere
+        // when no overflow source exists (so smoothstep collapses to 0 and the
+        // shader's default _OverflowMap stays black — no tint).
+        private float[,] ComputeOverflowDistance()
+        {
+            float[,] empty = new float[_columns, _rows];
+            if (_isOverflow == null) return empty;
+
+            bool[,] source = new bool[_columns, _rows];
+            bool any = false;
+            for (int r = 0; r < _rows; r++)
+            {
+                for (int c = 0; c < _columns; c++)
+                {
+                    if (_isOverflow[c, r])
+                    {
+                        source[c, r] = true;
+                        any = true;
+                    }
+                }
+            }
+            if (!any)
+            {
+                for (int r = 0; r < _rows; r++)
+                    for (int c = 0; c < _columns; c++)
+                        empty[c, r] = float.MaxValue;
+                return empty;
+            }
+            return ComputeDistanceField(source);
+        }
+
+        // Bakes the overflow distance field into a single-channel R8 texture
+        // mirroring the freshwater-visibility (R) channel of the altitude
+        // texture: 1 inside overflow source cells, smootherstep fading to 0
+        // outside over OverflowFalloffCells, with the same Perlin perturbation
+        // as the other diffusion fields so the boundary looks organic instead
+        // of grid-aligned. Sampled by EK_Water on the sea branch only.
+        private void GenerateOverflowTexture()
+        {
+            int texW = _columns * TextureMultiplier;
+            int texH = _rows * TextureMultiplier;
+
+            _overflowTexture = new Texture2D(texW, texH, TextureFormat.R8, false);
+            _overflowTexture.filterMode = FilterMode.Bilinear;
+            _overflowTexture.wrapMode = TextureWrapMode.Clamp;
+            _overflowTexture.name = "EcoKnow.OverflowMap";
+
+            Color[] pixels = new Color[texW * texH];
+            for (int ty = 0; ty < texH; ty++)
+            {
+                for (int tx = 0; tx < texW; tx++)
+                {
+                    float gc = (tx + 0.5f) / TextureMultiplier - 0.5f;
+                    float gr = (ty + 0.5f) / TextureMultiplier - 0.5f;
+                    gr = (_rows - 1) - gr;
+
+                    float diffNoise = Mathf.PerlinNoise(
+                        gc * 0.3f + _seedOffsetX + 900f,
+                        gr * 0.3f + _seedOffsetY + 900f
+                    );
+                    float diffPerturb = Mathf.Lerp(-DiffusionPerturbCells, DiffusionPerturbCells, diffNoise);
+
+                    float oDist = _overflowDistance != null
+                        ? SampleDistanceField(_overflowDistance, gc, gr)
+                        : float.MaxValue;
+                    float overflow;
+                    if (oDist >= float.MaxValue)
+                    {
+                        overflow = 0f;
+                    }
+                    else
+                    {
+                        float t = Mathf.Clamp01((oDist + diffPerturb) / OverflowFalloffCells);
+                        float s = t * t * t * (t * (t * 6f - 15f) + 10f);
+                        overflow = 1f - s;
+                    }
+
+                    pixels[ty * texW + tx] = new Color(overflow, 0f, 0f, 1f);
+                }
+            }
+
+            _overflowTexture.SetPixels(pixels);
+            _overflowTexture.Apply();
+        }
+
+        // Bakes the per-cell `_isFreshOnSand` flag into a single-channel R8
+        // texture: 1 inside cells whose zone stack contains both Freshwater and
+        // Sand (zones 5 estuary and 6 river-mouth in Largo), 0 elsewhere.
+        // Sampled by the freshwater shader to bleed extra alpha so the sandbed
+        // beneath the river crossing the beach shows through. The Perlin
+        // perturbation (same machinery as the diffusion fields) keeps the cell
+        // boundary organic instead of sharply rectangular.
+        private void GenerateFreshSandTexture()
+        {
+            int texW = _columns * TextureMultiplier;
+            int texH = _rows * TextureMultiplier;
+
+            _freshSandTexture = new Texture2D(texW, texH, TextureFormat.R8, false);
+            _freshSandTexture.filterMode = FilterMode.Bilinear;
+            _freshSandTexture.wrapMode = TextureWrapMode.Clamp;
+            _freshSandTexture.name = "EcoKnow.FreshSandMap";
+
+            Color[] pixels = new Color[texW * texH];
+            for (int ty = 0; ty < texH; ty++)
+            {
+                for (int tx = 0; tx < texW; tx++)
+                {
+                    float gc = (tx + 0.5f) / TextureMultiplier - 0.5f;
+                    float gr = (ty + 0.5f) / TextureMultiplier - 0.5f;
+                    gr = (_rows - 1) - gr;
+
+                    float perturbNoise = Mathf.PerlinNoise(
+                        gc * 0.3f + _seedOffsetX + 1100f,
+                        gr * 0.3f + _seedOffsetY + 1100f
+                    );
+                    float perturb = Mathf.Lerp(-DiffusionPerturbCells, DiffusionPerturbCells, perturbNoise);
+
+                    int cellCol = Mathf.Clamp(Mathf.RoundToInt(gc + perturb), 0, _columns - 1);
+                    int cellRow = Mathf.Clamp(Mathf.RoundToInt(gr + perturb), 0, _rows - 1);
+
+                    float value = (_isFreshOnSand != null && _isFreshOnSand[cellCol, cellRow]) ? 1f : 0f;
+
+                    pixels[ty * texW + tx] = new Color(value, 0f, 0f, 1f);
+                }
+            }
+
+            _freshSandTexture.SetPixels(pixels);
+            _freshSandTexture.Apply();
         }
 
         private float ComputeMaxWaterDistance(float[,] landDist)

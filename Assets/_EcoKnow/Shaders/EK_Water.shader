@@ -68,6 +68,28 @@ Shader "EcoKnow/Water"
         _DiffusionTintStrength ("Diffusion Tint Strength", Range(0,1)) = 0.7
         _SeaUnderFreshStrength ("Sea-Under-Fresh Fade", Range(0,1)) = 0
         _SeaEdgeAlphaFade ("Sea Edge Alpha Fade", Range(0,1)) = 0.36
+
+        // Freshwater interior alpha floor. The shared shore-alpha taper makes
+        // sense for the bay's gradual beach but turns 1-2 tile rivers
+        // translucent, letting the soil/sand layer beneath bleed through and
+        // warm-tint the cool channel into mud. Clamping here keeps narrow
+        // freshwater opaque without disabling the taper for seawater.
+        _FreshwaterMinAlpha ("Freshwater Interior Alpha Floor", Range(0,1)) = 1.0
+
+        // Per-cell mask for "freshwater stacked on sand" (estuary / river-mouth
+        // cells in Largo). 1 inside those cells, 0 elsewhere, with smoothed
+        // bilinear edges. Drives a small alpha drop so the sandbed beneath the
+        // river-crossing-the-beach shows through. Default texture is "black"
+        // (no effect) for scenarios without the flag baked.
+        _FreshSandMap ("Freshwater-on-Sand Mask", 2D) = "black" {}
+        _FreshSandTransparency ("Freshwater-on-Sand Transparency", Range(0,1)) = 0.4
+
+        // Overflow tint — sea-only. Single-channel R8 distance field baked by
+        // ElevationMap.GenerateOverflowTexture: 1 inside overflow source cells,
+        // smootherstep fading to 0 outside. Default "black" texture means no tint.
+        _OverflowMap ("Overflow Distance Map", 2D) = "black" {}
+        _OverflowTintColor ("Overflow Tint (sea side)", Color) = (0.55, 0.40, 0.22, 1)
+        _OverflowTintStrength ("Overflow Tint Strength", Range(0,1)) = 0.85
     }
 
     SubShader
@@ -109,6 +131,8 @@ Shader "EcoKnow/Water"
 
             sampler2D _MainTex;
             sampler2D _AltitudeTex;
+            sampler2D _OverflowMap;
+            sampler2D _FreshSandMap;
             sampler2D _CausticTex;
             sampler2D _CausticHighlightTex;
 
@@ -157,6 +181,10 @@ Shader "EcoKnow/Water"
             float _DiffusionTintStrength;
             float _SeaUnderFreshStrength;
             float _SeaEdgeAlphaFade;
+            fixed4 _OverflowTintColor;
+            float _OverflowTintStrength;
+            float _FreshwaterMinAlpha;
+            float _FreshSandTransparency;
 
             float hash21(float2 p)
             {
@@ -271,6 +299,26 @@ Shader "EcoKnow/Water"
                 fixed4 waterColor = lerp(_ShallowColor, _DeepColor, depth);
                 waterColor.rgb *= _BaseTint.rgb;
 
+                // ---- water-body colour tints (sea only) ----
+                // Applied here, BEFORE caustics/specular/foam, so those surface
+                // effects render on top of the diffusion/overflow tints rather
+                // than being buried by them. Per-pixel alpha adjustments tied
+                // to the same masks (_SeaUnderFreshStrength, _SeaEdgeAlphaFade)
+                // stay in the late diffusion section since they only touch .a.
+                if (_WaterType <= 0.5)
+                {
+                    // Sea cells in the freshwater plume tint toward _DiffusionTintColor.
+                    float seaHalo = altSample4.a;
+                    waterColor.rgb = lerp(waterColor.rgb, _DiffusionTintColor.rgb,
+                                          seaHalo * _DiffusionTintStrength);
+
+                    // Sea cells in/near overflow patches tint toward _OverflowTintColor.
+                    // Default _OverflowMap is "black" → no tint when no overflow exists.
+                    float overflow = tex2D(_OverflowMap, altUV).r;
+                    waterColor.rgb = lerp(waterColor.rgb, _OverflowTintColor.rgb,
+                                          overflow * _OverflowTintStrength);
+                }
+
                 // ---- caustic overlay ----
                 float2 pixelUV = floor(i.worldUV * _Pixelization) / _Pixelization;
 
@@ -373,13 +421,24 @@ Shader "EcoKnow/Water"
                 //                    fade through fresh-only and sea cells, 0 elsewhere.
                 if (_WaterType > 0.5)
                 {
+                    // Clamp before multiplying by the diffusion mask so the
+                    // fresh→sea feather (R fading from 1 to 0) still hands
+                    // off cleanly to the seawater shader at the seam.
+                    waterColor.a = max(waterColor.a, _FreshwaterMinAlpha);
+                    // Sandbed-show-through: in cells whose zone stack contains
+                    // both Freshwater and Sand (estuary / river-mouth), fade
+                    // alpha so a hint of the sand layer beneath comes through.
+                    // Mask is 0 for pure-fresh cells (no effect) and 1 for
+                    // fresh-on-sand cells, with bilinear-smoothed edges.
+                    float freshOnSand = tex2D(_FreshSandMap, altUV).r;
+                    waterColor.a *= 1.0 - freshOnSand * _FreshSandTransparency;
                     waterColor.a *= altSample4.r;
                 }
                 else
                 {
-                    float halo = altSample4.a;
-                    waterColor.rgb = lerp(waterColor.rgb, _DiffusionTintColor.rgb,
-                                          halo * _DiffusionTintStrength);
+                    // Colour tints (diffusion + overflow) were applied earlier so
+                    // caustics/specular/foam can render on top. This branch only
+                    // adjusts alpha now.
                     // Two-stage alpha fade for sea-under-fresh:
                     //   • _SeaUnderFreshStrength applies linearly with halo across the
                     //     whole plume — keeps the tinted sea visible far from the seam.
@@ -387,6 +446,7 @@ Shader "EcoKnow/Water"
                     //     sprite-edge band that foam uses) gated by halo so the fade
                     //     only fires on dual-grid edge pixels at the sea↔fresh seam —
                     //     the silhouette — without touching the plume's interior sea.
+                    float halo = altSample4.a;
                     waterColor.a *= 1.0 - halo * _SeaUnderFreshStrength;
                     waterColor.a *= 1.0 - foamEdgeMask * halo * _SeaEdgeAlphaFade;
                 }

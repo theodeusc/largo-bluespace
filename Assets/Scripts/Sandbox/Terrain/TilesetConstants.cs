@@ -15,6 +15,13 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         public const string SeaVoid = "sea_void";
         public const string Freshwater = "freshwater";
         public const string Crops = "crops";
+        // Overflow is a logical marker for cells that should drive a brown shader
+        // tint into the surrounding seawater. It is not a renderable terrain — it
+        // intentionally has no entry in TerrainPriority.Layers, TilesetPaths, or
+        // TexturePaths. Cells flagged Overflow render as ordinary seawater; the
+        // tint is produced by a distance field baked in ElevationMap and sampled
+        // by EK_Water on the sea branch.
+        public const string Overflow = "overflow";
 
         public static readonly string[] All = { Dirt, Grass, Sand, Sea, Freshwater, Crops };
 
@@ -25,6 +32,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             { Sand, Archetype.Soil },
             { Sea, Archetype.Liquid },
             { Freshwater, Archetype.Liquid },
+            { Overflow, Archetype.Liquid },
             { Crops, Archetype.Vegetation },
         };
 

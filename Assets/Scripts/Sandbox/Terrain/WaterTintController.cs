@@ -62,6 +62,10 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         private static readonly int IdDiffusionFalloffCells = Shader.PropertyToID("_DiffusionFalloffCells");
         private static readonly int IdDiffusionTintColor = Shader.PropertyToID("_DiffusionTintColor");
         private static readonly int IdDiffusionTintStrength = Shader.PropertyToID("_DiffusionTintStrength");
+        private static readonly int IdOverflowMap = Shader.PropertyToID("_OverflowMap");
+        private static readonly int IdOverflowTintColor = Shader.PropertyToID("_OverflowTintColor");
+        private static readonly int IdOverflowTintStrength = Shader.PropertyToID("_OverflowTintStrength");
+        private static readonly int IdFreshSandMap = Shader.PropertyToID("_FreshSandMap");
 
         // Caustic pixel-snap density per cell. Matches the original water rendering pipeline.
         private const float PatchPixels = 32f;
@@ -173,6 +177,24 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             ApplyGeometry(_seaInstance, altitudeTex, gridOrigin, gridWorldSize, altitudeTexSize, pixelization);
             ApplyGeometry(_freshInstance, altitudeTex, gridOrigin, gridWorldSize, altitudeTexSize, pixelization);
 
+            // Bind the overflow distance texture to the seawater instance — only
+            // the sea branch of EK_Water samples it, but the binding lives here so
+            // the texture follows the same scenario-load lifecycle as _AltitudeTex.
+            Texture2D overflowTex = map.OverflowTexture;
+            if (_seaInstance != null && overflowTex != null)
+            {
+                _seaInstance.SetTexture(IdOverflowMap, overflowTex);
+            }
+
+            // Bind the fresh-on-sand mask to the freshwater instance — only the
+            // fresh branch samples it (drives the sandbed-show-through alpha
+            // drop in zones where fresh and sand are stacked).
+            Texture2D freshSandTex = map.FreshSandTexture;
+            if (_freshInstance != null && freshSandTex != null)
+            {
+                _freshInstance.SetTexture(IdFreshSandMap, freshSandTex);
+            }
+
             // Octaves & depth envelope. Both materials receive seeded offsets so the
             // sub-cell noise stays correlated with WorldHeightSampler. Seawater uses the
             // sampler's amplitudes / depth envelope; freshwater keeps its asset-defined
@@ -255,6 +277,19 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         }
 
         /// <summary>
+        /// Runtime entry point for entity-driven brown overflow tint. Mutates the
+        /// seawater instance's _OverflowTintColor and _OverflowTintStrength — the
+        /// shader only applies the tint where the overflow distance field is
+        /// non-zero, so calls here are no-ops on cells outside the overflow plume.
+        /// </summary>
+        public void SetOverflowTint(Color tintColor, float strength)
+        {
+            if (_seaInstance == null) return;
+            _seaInstance.SetColor(IdOverflowTintColor, tintColor);
+            _seaInstance.SetFloat(IdOverflowTintStrength, Mathf.Clamp01(strength));
+        }
+
+        /// <summary>
         /// Restores the colour properties on each instance to the values shipped on
         /// the underlying asset. Safe to call before <see cref="BindElevationData"/>.
         /// </summary>
@@ -265,6 +300,8 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 _seaInstance.SetColor(IdShallowColor, _seaAsset.GetColor(IdShallowColor));
                 _seaInstance.SetColor(IdDeepColor, _seaAsset.GetColor(IdDeepColor));
                 _seaInstance.SetColor(IdBaseTint, _seaAsset.GetColor(IdBaseTint));
+                _seaInstance.SetColor(IdOverflowTintColor, _seaAsset.GetColor(IdOverflowTintColor));
+                _seaInstance.SetFloat(IdOverflowTintStrength, _seaAsset.GetFloat(IdOverflowTintStrength));
             }
             if (_freshInstance != null && _freshAsset != null)
             {

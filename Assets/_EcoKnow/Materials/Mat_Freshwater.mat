@@ -53,13 +53,19 @@ Material:
     - _SpecularScale2: 4.45
     - _SpecularThreshold: 0.66
     - _FoamScale: 0.4
-    - _FoamBlurSize: 3.5
+    - _FoamBlurSize: 1.12
     - _Pixelization: 16
-    - _DepthBase: 0.625
-    - _DepthAmplitude: 0.375
-    - _DepthCenter: 0.35
+    - _DepthBase: 1.6
+    - _DepthAmplitude: 0.96
+    - _DepthCenter: -0.05
+    - _DiffusionFalloffCells: 3.37
+    - _DiffusionTintStrength: 1
+    - _SeaUnderFreshStrength: 1
+    - _SeaEdgeAlphaFade: 1
+    - _FreshwaterMinAlpha: 0.92
+    - _FreshSandTransparency: 0.06
     m_Colors:
-    - _ShallowColor: {r: 0.2275, g: 0.5333, b: 0.7451, a: 1}
+    - _ShallowColor: {r: 0.1412, g: 0.4471, b: 0.6588, a: 1}
     - _DeepColor: {r: 0.0863, g: 0.2039, b: 0.5647, a: 1}
     - _BaseTint: {r: 1, g: 1, b: 1, a: 1}
     - _CausticColor: {r: 0.2706, g: 0.6, b: 0.6431, a: 0.5098}

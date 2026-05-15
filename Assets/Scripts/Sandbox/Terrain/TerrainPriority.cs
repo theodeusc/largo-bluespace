@@ -26,7 +26,12 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             { 4, new[] { TilesetConstants.Freshwater, TilesetConstants.Dirt } },
             { 5, new[] { TilesetConstants.Freshwater, TilesetConstants.Sand } },
             { 6, new[] { TilesetConstants.Freshwater, TilesetConstants.Sea, TilesetConstants.Sand } },
-            { 7, new[] { TilesetConstants.Crops, TilesetConstants.Dirt } }
+            { 7, new[] { TilesetConstants.Crops, TilesetConstants.Dirt } },
+            // Overflow zones are seawater cells with a brown shader tint. Overflow
+            // is intentionally absent from Layers — it is a marker for the
+            // ElevationMap distance field, not a renderable layer. Sand is kept so
+            // the bottom layer matches surrounding zone-0 cells.
+            { 8, new[] { TilesetConstants.Sea, TilesetConstants.Overflow, TilesetConstants.Sand } }
         };
 
         public static int LayerOf(string terrain)
