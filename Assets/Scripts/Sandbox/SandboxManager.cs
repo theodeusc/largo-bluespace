@@ -97,6 +97,11 @@ namespace Glitchers.EcoKnow.Sandbox
         private RegionComputeManager _regionComputeManager;
         public RegionComputeManager RegionComputeManager => _regionComputeManager;
 
+        // Cached snapshot of the currently running scenario. Set by SetupAndRunScenario and
+        // consumed by per-round helpers (RoundEventApplier, PollutantColorDriver) that need
+        // the scenario's baseline / addition / decline / schedule tables.
+        private Scenario _currentScenario;
+
         // Fires once per scenario start after grid/entities/region-init are complete and just
         // before SandboxUI initialises. Late enough that RegionComputeManager (if used) is
         // fully built and EntityManager has its lookup table populated; early enough that
@@ -215,12 +220,37 @@ namespace Glitchers.EcoKnow.Sandbox
                     _regionComputeManager = new RegionComputeManager();
                     _regionComputeManager.Initialize(_gridManager, _entityManager);
                     _entityManager.SetRegionMode(_regionComputeManager);
+
+                    // Register one-way pollutant dispersion (freshwater -> seawater, overflow -> seawater)
+                    // before applying baselines, so the movement policy is in place by the time the
+                    // first round ticks. Estuary regions alias to freshwater inside RegionComputeManager,
+                    // so no separate estuary entry is needed.
+                    RegionMovementPolicy.RegisterWaterPollutants(_entityManager);
+
+                    // Apply per-zone baseline populations to each region's compute cell. Pure
+                    // pollutant entries (freshwater / seawater / overflow zones) seed pollutant
+                    // counts; sand/seawater entity-baselines seed sealife (1 seal per sand region,
+                    // 200 oysters + 200 seagrass per seawater region). Aliased regions (estuary)
+                    // are skipped so their state stays zero — they read freshwater via ResolveCell.
+                    ApplyZoneBaselines(scenario);
                 }
+
+                _currentScenario = scenario;
 
                 //Notify late-stage listeners (e.g. pixel-art entity spawner) that the
                 //scenario is fully wired up. Fire BEFORE UI init so any sprites placed in
                 //response are part of the first frame the player sees.
                 OnScenarioReady?.Invoke();
+
+                // Round 0 colour pass: with baselines in place and no events applied, every
+                // per-pollutant norm is 0 and the water keeps its authored defaults. This call
+                // also re-syncs the diffusion tint from the (possibly mutated) freshwater
+                // instance — necessary if WaterTintController was already in mid-lerp from a
+                // previous scenario when Cleanup ran.
+                if (_waterTintController != null)
+                {
+                    Terrain.PollutantColorDriver.Refresh(_currentScenario, _entityManager, _regionComputeManager, _waterTintController);
+                }
 
                 //Set up all of our UI
                 _sandboxUI?.Init(scenario, _entityManager, _winConditions.ToArray(), _playerInventory);
@@ -253,29 +283,62 @@ namespace Glitchers.EcoKnow.Sandbox
 
             _entityManager?.SetRegionMode(null);
             _regionComputeManager = null;
+            _currentScenario = null;
+
+            // Wipe per-entity pollutant movement entries left over from the previous scenario.
+            // The policy table is static; without this, replaying / switching scenarios stacks
+            // stale Allow() entries that would re-enable movement for the wrong entity indices.
+            RegionMovementPolicy.Clear();
 
             _gridManager?.Cleanup();
             _playerInventory.Cleanup();
             _sandboxUI.Cleanup();
+        }
+
+        // Per-zone, per-entity seeding driven by Scenario.ZoneBaselines. Writes directly to
+        // the (non-aliased) compute cell of every region whose zone id matches. Idempotent —
+        // safe to call multiple times during scenario init (each call overwrites with the same
+        // value). Aliased regions (estuary -> freshwater) are intentionally skipped so estuary
+        // state stays at zero and only the linked freshwater compute cell holds pollutants.
+        private void ApplyZoneBaselines(Scenario scenario)
+        {
+            if (scenario == null || scenario.ZoneBaselines == null) return;
+            if (_entityManager == null || _regionComputeManager == null || !_regionComputeManager.IsActive) return;
+
+            for (int i = 0; i < scenario.ZoneBaselines.Length; i++)
+            {
+                ZoneBaseline baseline = scenario.ZoneBaselines[i];
+                if (baseline == null) continue;
+                int entityIndex = _entityManager.GetEntityIndex(baseline.EntityID);
+                if (entityIndex < 0)
+                {
+                    Debug.LogWarning($"[SandboxManager] ApplyZoneBaselines: unknown entity ID '{baseline.EntityID}'");
+                    continue;
+                }
+
+                long value = baseline.Value >= (double)long.MaxValue ? long.MaxValue : (long)System.Math.Floor(System.Math.Max(0.0, baseline.Value));
+
+                foreach (int regionId in _regionComputeManager.AllRegionIds)
+                {
+                    if (_regionComputeManager.IsAliased(regionId)) continue;
+                    if (!_regionComputeManager.TryGetCenterCell(regionId, out var center)) continue;
+                    int centerZone = _entityManager.GetZoneType(center.col, center.row);
+                    if (centerZone != baseline.ZoneID) continue;
+                    _entityManager.RawSetPopulation(center.col, center.row, entityIndex, value);
+                }
+            }
         }
         #endregion
 
         #region Rounds and Steps
         public void OnAdvanceRoundPressed()
         {
-            CalculateMaths();
             OnRoundEnded();
-        }
-
-        private void CalculateMaths()
-        {
-            _entityManager?.PerformCalculations();
-            _gridManager?.UpdateAllCells();
         }
 
         private void OnRoundEnded()
         {
-            //Check our win conditions
+            //Check our win conditions (evaluated on the round the player just observed)
             foreach (WinCondition winCondition in _winConditions)
             {
                 winCondition.OnNewRound();
@@ -292,7 +355,17 @@ namespace Glitchers.EcoKnow.Sandbox
             }
             else
             {
+                // Transition to the next round and refresh display so the player sees the
+                // round's addition/decline events on the previous round's UNMODIFIED state.
                 StartNewRound();
+
+                // Movement (and L-V) runs AFTER the new round's events have been applied
+                // and the display has refreshed. The cell tokens and water tint stay frozen
+                // at the post-Apply visual until the next round's StartNewRound triggers
+                // another refresh — that next refresh shows post-(Movement + Apply(N+1)).
+                // Net effect: the player gets to see each round's addition pre-drainage,
+                // and movement's effect surfaces on the following round.
+                _entityManager?.PerformCalculations();
             }
         }
 
@@ -300,6 +373,17 @@ namespace Glitchers.EcoKnow.Sandbox
         {
             _currentRound += 1;
             MultiplayerManager.Instance.SetCurrentPlayer(0);//Reset
+
+            // Apply the NEW round's addition / decline events here (rather than in
+            // CalculateMaths) so the populations the player sees on screen are the
+            // post-addition state for this round. Then refresh cell tokens and the
+            // water tint so visuals match. Skipped silently when there's no schedule.
+            RoundEventApplier.Apply(_currentRound, _currentScenario, _entityManager, _regionComputeManager);
+            _gridManager?.UpdateAllCells();
+            if (_waterTintController != null)
+            {
+                Terrain.PollutantColorDriver.Refresh(_currentScenario, _entityManager, _regionComputeManager, _waterTintController);
+            }
 
             //Update actions
             int actionsHeld = 0;

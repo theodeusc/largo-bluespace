@@ -41,6 +41,18 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         public Material SeawaterMaterial => _seaInstance;
         public Material FreshwaterMaterial => _freshInstance;
 
+        // Asset-default colour accessors used by PollutantColorDriver as the "0% polluted"
+        // anchor when lerping toward brown. Reading from _seaAsset / _freshAsset so the
+        // anchor never drifts as we mutate the per-instance materials each round.
+        public Color SeawaterDefaultShallow => _seaAsset != null ? _seaAsset.GetColor(IdShallowColor) : new Color(0.32f, 0.62f, 0.78f, 1f);
+        public Color SeawaterDefaultDeep => _seaAsset != null ? _seaAsset.GetColor(IdDeepColor) : new Color(0.08f, 0.18f, 0.35f, 1f);
+        public Color SeawaterDefaultBaseTint => _seaAsset != null ? _seaAsset.GetColor(IdBaseTint) : Color.white;
+        public Color FreshwaterDefaultShallow => _freshAsset != null ? _freshAsset.GetColor(IdShallowColor) : new Color(0.32f, 0.62f, 0.78f, 1f);
+        public Color FreshwaterDefaultDeep => _freshAsset != null ? _freshAsset.GetColor(IdDeepColor) : new Color(0.08f, 0.18f, 0.35f, 1f);
+        public Color FreshwaterDefaultBaseTint => _freshAsset != null ? _freshAsset.GetColor(IdBaseTint) : Color.white;
+        public Color OverflowDefaultTint => _seaAsset != null ? _seaAsset.GetColor(IdOverflowTintColor) : new Color(0.45f, 0.28f, 0.1f, 1f);
+        public float OverflowDefaultStrength => _seaAsset != null ? _seaAsset.GetFloat(IdOverflowTintStrength) : 1f;
+
         // Shader property IDs — resolved once for cheaper SetX calls.
         private static readonly int IdShallowColor = Shader.PropertyToID("_ShallowColor");
         private static readonly int IdDeepColor = Shader.PropertyToID("_DeepColor");
@@ -259,42 +271,58 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             _seaInstance.SetColor(IdDiffusionTintColor, tint);
         }
 
+        /// <summary>
+        /// Sets the seawater tint as the END point of a smooth lerp. The current material
+        /// colours become the lerp's start point; the new values are reached after
+        /// <see cref="ColorLerpDuration"/> seconds (advanced in <see cref="Update"/>).
+        /// </summary>
         public void SetSeawaterTint(Color shallow, Color deep, Color baseTint)
         {
             if (_seaInstance == null) return;
-            _seaInstance.SetColor(IdShallowColor, shallow);
-            _seaInstance.SetColor(IdDeepColor, deep);
-            _seaInstance.SetColor(IdBaseTint, baseTint);
+            BeginColorLerp(ref _seaLerp, _seaInstance, shallow, deep, baseTint, ColorLerpDuration);
         }
 
+        /// <summary>
+        /// Sets the freshwater tint as the END point of a smooth lerp. The sea diffusion
+        /// tint is re-synced each frame from the freshwater shallow colour, so it follows
+        /// the lerp without an extra explicit hook.
+        /// </summary>
         public void SetFreshwaterTint(Color shallow, Color deep, Color baseTint)
         {
             if (_freshInstance == null) return;
-            _freshInstance.SetColor(IdShallowColor, shallow);
-            _freshInstance.SetColor(IdDeepColor, deep);
-            _freshInstance.SetColor(IdBaseTint, baseTint);
-            SyncDiffusionTint();
+            BeginColorLerp(ref _freshLerp, _freshInstance, shallow, deep, baseTint, ColorLerpDuration);
         }
 
         /// <summary>
         /// Runtime entry point for entity-driven brown overflow tint. Mutates the
-        /// seawater instance's _OverflowTintColor and _OverflowTintStrength — the
-        /// shader only applies the tint where the overflow distance field is
-        /// non-zero, so calls here are no-ops on cells outside the overflow plume.
+        /// seawater instance's _OverflowTintColor and _OverflowTintStrength via the
+        /// same lerp mechanism as the shallow/deep tints; the shader only applies the
+        /// tint where the overflow distance field is non-zero.
         /// </summary>
         public void SetOverflowTint(Color tintColor, float strength)
         {
             if (_seaInstance == null) return;
-            _seaInstance.SetColor(IdOverflowTintColor, tintColor);
-            _seaInstance.SetFloat(IdOverflowTintStrength, Mathf.Clamp01(strength));
+            _overflowLerp.ColorStart = _seaInstance.GetColor(IdOverflowTintColor);
+            _overflowLerp.StrengthStart = _seaInstance.GetFloat(IdOverflowTintStrength);
+            _overflowLerp.ColorEnd = tintColor;
+            _overflowLerp.StrengthEnd = Mathf.Clamp01(strength);
+            _overflowLerp.StartTime = Time.time;
+            _overflowLerp.Duration = ColorLerpDuration;
+            _overflowLerp.Active = true;
         }
 
         /// <summary>
         /// Restores the colour properties on each instance to the values shipped on
-        /// the underlying asset. Safe to call before <see cref="BindElevationData"/>.
+        /// the underlying asset. Cancels any in-flight lerps so the snap takes effect.
+        /// Safe to call before <see cref="BindElevationData"/>.
         /// </summary>
         public void ResetToDefaults()
         {
+            // Cancel any active lerps so the snap below isn't overridden by Update.
+            _seaLerp.Active = false;
+            _freshLerp.Active = false;
+            _overflowLerp.Active = false;
+
             if (_seaInstance != null && _seaAsset != null)
             {
                 _seaInstance.SetColor(IdShallowColor, _seaAsset.GetColor(IdShallowColor));
@@ -310,6 +338,88 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 _freshInstance.SetColor(IdBaseTint, _freshAsset.GetColor(IdBaseTint));
             }
             SyncDiffusionTint();
+        }
+
+        // --- Smooth colour transitions ---------------------------------------------------
+        // Tint updates are routed through a per-frame lerp rather than applied instantly,
+        // so when a new round establishes a different pollution state the water shifts
+        // gradually toward the new target rather than snapping. The lerp restarts from
+        // the current (possibly mid-animation) value on every SetX call, so repeated
+        // changes chain cleanly without visible jumps.
+
+        // Seconds to ease from the previous water colour to the latest target.
+        // Not serialized — scene-baked overrides would otherwise persist across code changes.
+        private const float ColorLerpDuration = 2f;
+
+        private struct WaterColorLerp
+        {
+            public bool Active;
+            public float StartTime;
+            public float Duration;
+            public Color ShallowStart, ShallowEnd;
+            public Color DeepStart, DeepEnd;
+            public Color BaseStart, BaseEnd;
+        }
+
+        private struct OverflowColorLerp
+        {
+            public bool Active;
+            public float StartTime;
+            public float Duration;
+            public Color ColorStart, ColorEnd;
+            public float StrengthStart, StrengthEnd;
+        }
+
+        private WaterColorLerp _seaLerp;
+        private WaterColorLerp _freshLerp;
+        private OverflowColorLerp _overflowLerp;
+
+        private void BeginColorLerp(ref WaterColorLerp s, Material m, Color shallowEnd, Color deepEnd, Color baseEnd, float duration)
+        {
+            // Capture the material's current values as the lerp start; this handles
+            // restart-mid-animation correctly (start = current, not previous target).
+            s.ShallowStart = m.GetColor(IdShallowColor);
+            s.DeepStart = m.GetColor(IdDeepColor);
+            s.BaseStart = m.GetColor(IdBaseTint);
+            s.ShallowEnd = shallowEnd;
+            s.DeepEnd = deepEnd;
+            s.BaseEnd = baseEnd;
+            s.StartTime = Time.time;
+            s.Duration = duration <= 0f ? 0.001f : duration;
+            s.Active = true;
+        }
+
+        private void Update()
+        {
+            bool freshWasActive = _freshLerp.Active;
+            AdvanceWaterLerp(ref _seaLerp, _seaInstance);
+            AdvanceWaterLerp(ref _freshLerp, _freshInstance);
+            AdvanceOverflowLerp(ref _overflowLerp, _seaInstance);
+
+            // Sea's diffusion-tint binding mirrors freshwater's shallow colour. Sync each
+            // frame while freshwater is animating, plus one extra frame after it completes
+            // (freshWasActive but now inactive) so the final frame's value lands in the
+            // diffusion tint too.
+            if (freshWasActive) SyncDiffusionTint();
+        }
+
+        private void AdvanceWaterLerp(ref WaterColorLerp s, Material m)
+        {
+            if (!s.Active || m == null) return;
+            float t = Mathf.Clamp01((Time.time - s.StartTime) / s.Duration);
+            m.SetColor(IdShallowColor, Color.Lerp(s.ShallowStart, s.ShallowEnd, t));
+            m.SetColor(IdDeepColor, Color.Lerp(s.DeepStart, s.DeepEnd, t));
+            m.SetColor(IdBaseTint, Color.Lerp(s.BaseStart, s.BaseEnd, t));
+            if (t >= 1f) s.Active = false;
+        }
+
+        private void AdvanceOverflowLerp(ref OverflowColorLerp s, Material m)
+        {
+            if (!s.Active || m == null) return;
+            float t = Mathf.Clamp01((Time.time - s.StartTime) / s.Duration);
+            m.SetColor(IdOverflowTintColor, Color.Lerp(s.ColorStart, s.ColorEnd, t));
+            m.SetFloat(IdOverflowTintStrength, Mathf.Lerp(s.StrengthStart, s.StrengthEnd, t));
+            if (t >= 1f) s.Active = false;
         }
     }
 }

@@ -48,6 +48,12 @@ namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
         private readonly Dictionary<int, HashSet<int>> _regionAdjacency = new Dictionary<int, HashSet<int>>();
         private readonly Dictionary<int, List<(int col, int row)>> _regionCells = new Dictionary<int, List<(int col, int row)>>();
 
+        // Region-id aliases used to redirect visual / compute lookups from one region to another.
+        // Estuary regions alias to their nearest freshwater region so the estuary becomes a
+        // pure visual proxy onto freshwater pollutant state (no independent simulation).
+        // Map is empty by default; populated by BuildEstuaryAliases() after adjacency is built.
+        private readonly Dictionary<int, int> _regionAlias = new Dictionary<int, int>();
+
         public bool IsActive => _isActive;
         public int RegionCount => _computeCells.Count;
         public int Columns => _columns;
@@ -118,6 +124,7 @@ namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
 
             AggregatePopulations(entityManager);
             BuildAdjacency();
+            BuildEstuaryAliases();
 
             _isActive = true;
         }
@@ -126,14 +133,39 @@ namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
         {
             if (!_isActive) return (col, row);
             if (col < 0 || col >= _columns || row < 0 || row >= _rows) return (col, row);
-            if (_cellTypes[col, row] == CellType.Compute) return (col, row);
 
             int regionId = _cellToRegion[col, row];
+            // Aliased region: redirect every cell (even the original compute cell) so
+            // estuary state never participates in simulation — its visual cells render
+            // the freshwater region's pollutant levels via the shared compute cell.
+            if (regionId >= 0 && _regionAlias.TryGetValue(regionId, out int aliasedRegionId))
+            {
+                if (_computeCells.TryGetValue(aliasedRegionId, out var aliasedCenter))
+                {
+                    return aliasedCenter;
+                }
+            }
+
+            if (_cellTypes[col, row] == CellType.Compute) return (col, row);
+
             if (regionId >= 0 && _computeCells.TryGetValue(regionId, out var center))
             {
                 return center;
             }
             return (col, row);
+        }
+
+        // Returns the alias target for a region, or the region itself if not aliased.
+        // Used by RoundEventApplier and PollutantColorDriver to operate on the "real"
+        // (non-aliased) compute cell so aliased regions never get double-applied.
+        public int GetAliasOrSelf(int regionId)
+        {
+            return _regionAlias.TryGetValue(regionId, out int aliased) ? aliased : regionId;
+        }
+
+        public bool IsAliased(int regionId)
+        {
+            return _regionAlias.ContainsKey(regionId);
         }
 
         public CellType GetCellType(int col, int row)
@@ -352,11 +384,11 @@ namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
 
                 for (int e = 0; e < entityCount; e++)
                 {
-                    int sum = 0;
+                    long sum = 0L;
                     for (int i = 0; i < cells.Count; i++)
                     {
-                        int pop = entityManager.RawGetPopulation(cells[i].col, cells[i].row, e);
-                        if (pop > 0) sum += pop;
+                        long pop = entityManager.RawGetPopulation(cells[i].col, cells[i].row, e);
+                        if (pop > 0L) sum += pop;
                     }
                     entityManager.RawSetPopulation(center.col, center.row, e, sum);
                 }
@@ -366,10 +398,62 @@ namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
                     if (cells[i].col == center.col && cells[i].row == center.row) continue;
                     for (int e = 0; e < entityCount; e++)
                     {
-                        entityManager.RawSetPopulation(cells[i].col, cells[i].row, e, 0);
+                        entityManager.RawSetPopulation(cells[i].col, cells[i].row, e, 0L);
                     }
                 }
             }
+        }
+
+        // For each estuary region, find the nearest freshwater region by BFS over the
+        // region-adjacency graph and record the alias. If no freshwater region is reachable
+        // (e.g. an isolated estuary blob), the estuary keeps its own state — logged so it's
+        // visible in the editor console but does not break the scenario.
+        private void BuildEstuaryAliases()
+        {
+            _regionAlias.Clear();
+
+            List<int> estuaryRegionIds = new List<int>();
+            foreach (var kv in _regionType)
+            {
+                if (kv.Value == RegionType.Estuary)
+                {
+                    estuaryRegionIds.Add(kv.Key);
+                }
+            }
+
+            foreach (int estuaryId in estuaryRegionIds)
+            {
+                int nearestFresh = FindNearestRegionOfType(estuaryId, RegionType.Freshwater);
+                if (nearestFresh >= 0)
+                {
+                    _regionAlias[estuaryId] = nearestFresh;
+                }
+                else
+                {
+                    Debug.LogWarning($"{LogChannel} Estuary region {estuaryId} has no reachable freshwater region. It will keep its own (uninitialised) state.");
+                }
+            }
+        }
+
+        private int FindNearestRegionOfType(int startRegionId, RegionType targetType)
+        {
+            HashSet<int> visited = new HashSet<int> { startRegionId };
+            Queue<int> queue = new Queue<int>();
+            queue.Enqueue(startRegionId);
+            while (queue.Count > 0)
+            {
+                int current = queue.Dequeue();
+                foreach (int neighbour in GetAdjacentRegions(current))
+                {
+                    if (!visited.Add(neighbour)) continue;
+                    if (_regionType.TryGetValue(neighbour, out RegionType t) && t == targetType)
+                    {
+                        return neighbour;
+                    }
+                    queue.Enqueue(neighbour);
+                }
+            }
+            return -1;
         }
 
         private void BuildAdjacency()

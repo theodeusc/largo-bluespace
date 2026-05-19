@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Collections.Generic;
 using Glitchers.EcoKnow.Sandbox.Grid;
@@ -10,7 +11,7 @@ namespace Glitchers.EcoKnow.Sandbox
         public string Name() => "Standard (Wraparound)";
         public string Version() => "1.0";
 
-        public void CalculatePopulations(EntityManager entityManager, int[,,] entityLookupTable)
+        public void CalculatePopulations(EntityManager entityManager, long[,,] entityLookupTable)
         {
             if (entityManager == null)
             {
@@ -61,17 +62,21 @@ namespace Glitchers.EcoKnow.Sandbox
                         return;
                     }
 
-                    float[] r = entityManager.GetEntityTypeList().Select(x => x.ZoneInformation != null && x.ZoneInformation.FirstOrDefault(z => z.ZoneID == zone) != null ? x.ZoneInformation.FirstOrDefault(z => z.ZoneID == zone).GrowthRate : x.GrowthRate).ToArray();
-                    float[] N = entityList.Select(x => (float)x.Population).ToArray();
+                    double[] r = entityManager.GetEntityTypeList().Select(x => (double)(x.ZoneInformation != null && x.ZoneInformation.FirstOrDefault(z => z.ZoneID == zone) != null ? x.ZoneInformation.FirstOrDefault(z => z.ZoneID == zone).GrowthRate : x.GrowthRate)).ToArray();
+                    double[] N = new double[entityManager.EntityTypeCount];
+                    for (int n = 0; n < N.Length; n++)
+                    {
+                        N[n] = (double)entityLookupTable[column, row, n];
+                    }
 
                     //AN
-                    float[] AN = new float[entityManager.EntityTypeCount];
+                    double[] AN = new double[entityManager.EntityTypeCount];
                     for (int yy = 0; yy < A.GetLongLength(1); yy++)
                     {
-                        float result = 0f;
+                        double result = 0.0;
                         for (int xx = 0; xx < A.GetLongLength(0); xx++)
                         {
-                            result += A[xx, yy] * N[xx];
+                            result += (double)A[xx, yy] * N[xx];
                             //Debug.Log(A[xx, yy]);
                         }
 
@@ -79,7 +84,7 @@ namespace Glitchers.EcoKnow.Sandbox
                     }
 
                     //N + N.(r + AN)
-                    float[] NNrAN = new float[entityManager.EntityTypeCount];
+                    double[] NNrAN = new double[entityManager.EntityTypeCount];
                     for (int a = 0; a < N.Length; a++)
                     {
                         NNrAN[a] = N[a] + (N[a] * (r[a] + AN[a]));
@@ -89,13 +94,16 @@ namespace Glitchers.EcoKnow.Sandbox
                     //Update entity numbers
                     for (int b = 0; b < NNrAN.Length; b++)
                     {
-                        entityLookupTable[column, row, b] = Mathf.Max(0, Mathf.FloorToInt(NNrAN[b]));
+                        double v = NNrAN[b];
+                        if (double.IsNaN(v) || v <= 0.0) entityLookupTable[column, row, b] = 0L;
+                        else if (v >= (double)long.MaxValue) entityLookupTable[column, row, b] = long.MaxValue;
+                        else entityLookupTable[column, row, b] = (long)Math.Floor(v);
                     }
                 }
             }
         }
 
-        public void CalculateMovement(EntityManager entityManager, int[,,] entityLookupTable)
+        public void CalculateMovement(EntityManager entityManager, long[,,] entityLookupTable)
         {
             if (entityManager == null)
             {
@@ -111,15 +119,15 @@ namespace Glitchers.EcoKnow.Sandbox
 
                 if (entity.MovementRate > 0f || (entity.ZoneInformation != null && entity.ZoneInformation.Any(x => x.MovementRate > 0f)))
                 {
-                    int[,,] movementTable = new int[entityLookupTable.GetLongLength(0), entityLookupTable.GetLongLength(1), entityLookupTable.GetLongLength(2)];
+                    long[,,] movementTable = new long[entityLookupTable.GetLongLength(0), entityLookupTable.GetLongLength(1), entityLookupTable.GetLongLength(2)];
 
                     //Move our requested entity in each cell
                     for (int column = 0; column < entityLookupTable.GetLongLength(0); column++)
                     {
                         for (int row = 0; row < entityLookupTable.GetLongLength(1); row++)
                         {
-                            int currentPopulation = entityLookupTable[column, row, i];
-                            if (currentPopulation < 0)
+                            long currentPopulation = entityLookupTable[column, row, i];
+                            if (currentPopulation < 0L)
                             {
                                 //This cell/entity is empty, do not perform movement calculations
                                 continue;
@@ -164,15 +172,35 @@ namespace Glitchers.EcoKnow.Sandbox
                                 continue;
                             }
 
-                            //get number of entities to move
-                            int entitiesToMove = 0;
-                            for (int j = 0; j < currentPopulation; j++)
+                            //get number of entities to move. Avoid an O(N) per-individual loop for
+                            //huge populations (pollutants ~1e14) — switch to a binomial-style
+                            //normal approximation above a safety threshold.
+                            long entitiesToMove;
+                            if (currentPopulation < 1000L)
                             {
-                                entitiesToMove += UnityEngine.Random.Range(0f, 1f) <= movementRate ? 1 : 0;
+                                entitiesToMove = 0L;
+                                int small = (int)currentPopulation;
+                                for (int j = 0; j < small; j++)
+                                {
+                                    entitiesToMove += UnityEngine.Random.Range(0f, 1f) <= movementRate ? 1 : 0;
+                                }
+                            }
+                            else
+                            {
+                                double mean = (double)currentPopulation * movementRate;
+                                double stdDev = Math.Sqrt((double)currentPopulation * movementRate * (1.0 - movementRate));
+                                double u1 = 1.0 - UnityEngine.Random.Range(0f, 1f);
+                                double u2 = 1.0 - UnityEngine.Random.Range(0f, 1f);
+                                double standardNormal = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Sin(2.0 * Math.PI * u2);
+                                double sample = mean + stdDev * standardNormal;
+                                if (sample <= 0.0) entitiesToMove = 0L;
+                                else if (sample >= (double)currentPopulation) entitiesToMove = currentPopulation;
+                                else entitiesToMove = (long)Math.Round(sample);
                             }
 
                             //divide moving entities by the number of valid neighbours
-                            int entitiesMovingPerCell = Mathf.FloorToInt((float)entitiesToMove / (float)(neighbouringCellCount + edgeCells.Count()));
+                            int targetCellCount = neighbouringCellCount + edgeCells.Count();
+                            long entitiesMovingPerCell = targetCellCount > 0 ? entitiesToMove / targetCellCount : 0L;
 
                             //Add to neighbouring cells and remove from current cell respectively
                             for (int x = -1; x < 2; x++)
@@ -184,7 +212,7 @@ namespace Glitchers.EcoKnow.Sandbox
 
                                     if (x == 0 && y == 0)
                                     {
-                                        movementTable[xPos, yPos, i] -= (entitiesMovingPerCell * (neighbouringCellCount + edgeCells.Count()));
+                                        movementTable[xPos, yPos, i] -= (entitiesMovingPerCell * targetCellCount);
                                     }
                                     else if (xPos >= 0 &&
                                             xPos < entityLookupTable.GetLongLength(0) &&
@@ -192,7 +220,7 @@ namespace Glitchers.EcoKnow.Sandbox
                                             yPos < entityLookupTable.GetLongLength(1))
                                     {
                                         //Check for valid cell and zone transition
-                                        if (entityLookupTable[xPos, yPos, i] >= 0)
+                                        if (entityLookupTable[xPos, yPos, i] >= 0L)
                                         {
                                             if (entity.ZoneInformation != null)
                                             {
@@ -225,9 +253,9 @@ namespace Glitchers.EcoKnow.Sandbox
                         for (int row = 0; row < entityLookupTable.GetLongLength(1); row++)
                         {
                             //Check for valid cell
-                            if (entityLookupTable[column, row, i] >= 0)
+                            if (entityLookupTable[column, row, i] >= 0L)
                             {
-                                entityLookupTable[column, row, i] = Mathf.Max(0, Mathf.Max(entityLookupTable[column, row, i] + movementTable[column, row, i], 0));
+                                entityLookupTable[column, row, i] = Math.Max(0L, entityLookupTable[column, row, i] + movementTable[column, row, i]);
                             }
                         }
                     }
@@ -236,7 +264,7 @@ namespace Glitchers.EcoKnow.Sandbox
         }
 
         // Helper method to get valid neighbor coordinates, with zone transition filtering
-        private List<Vector2Int> GetValidNeighbors(EntityManager entityManager, int[,,] entityLookupTable, int column, int row, int entityIndex, Entity entity = null, int currentZone = 0)
+        private List<Vector2Int> GetValidNeighbors(EntityManager entityManager, long[,,] entityLookupTable, int column, int row, int entityIndex, Entity entity = null, int currentZone = 0)
         {
             List<Vector2Int> validNeighbors = new List<Vector2Int>();
 
@@ -256,7 +284,7 @@ namespace Glitchers.EcoKnow.Sandbox
                     }
 
                     // Check if the target cell is valid for this entity
-                    if (entityLookupTable[xPos, yPos, entityIndex] >= 0)
+                    if (entityLookupTable[xPos, yPos, entityIndex] >= 0L)
                     {
                         // Check zone transition rules
                         if (entity != null && entity.ZoneInformation != null)

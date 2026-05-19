@@ -31,7 +31,11 @@ namespace Glitchers.EcoKnow.Sandbox
         Quantity[] HarvestQuantities,
         Quantity[] IntroduceQuantities,
 
-        EntityZoneInformation[] ZoneInformation
+        EntityZoneInformation[] ZoneInformation,
+
+        // Hide this entity's per-cell token while keeping it in the right-side EntityPanel.
+        // Defaults to false to preserve existing scenarios; opt-in per-entity in the JSON.
+        bool HiddenFromCellToken = false
         );
 
 
@@ -65,7 +69,9 @@ namespace Glitchers.EcoKnow.Sandbox
 
         //Cell lookup table
         //X, Y, entityIndex
-        private int[,,] _entityLookupTable;
+        //Stored as long so pollutant values (e.g. e_coli ~3e14) survive without overflow.
+        //UI-facing getters clamp to int for display.
+        private long[,,] _entityLookupTable;
 
         public EntityEvent onEntityHarvested;
         public EntityEvent onEntityIntroduced;
@@ -104,7 +110,7 @@ namespace Glitchers.EcoKnow.Sandbox
             }
 
             Vector2 gridSize = gridManager.GridSize;
-            _entityLookupTable = new int[(int)gridSize.x, (int)gridSize.y, EntityTypeCount];
+            _entityLookupTable = new long[(int)gridSize.x, (int)gridSize.y, EntityTypeCount];
 
             //Add arbritrary amount of entities to each cell for now
             for (int row = 0; row < gridSize.y; row++)
@@ -116,7 +122,7 @@ namespace Glitchers.EcoKnow.Sandbox
                         Entity entityType = GetEntityType(i);
 
                         int startPopulation = gridDef.HasPopulations() ? gridDef.GetPopulation(column, row, i) : entityType.AutoPlace == true ? entityType.StartPopulation : 0;
-                        _entityLookupTable[column, row, i] = gridManager.FindCellAtPosition(column, row) != null ? startPopulation : -1;
+                        _entityLookupTable[column, row, i] = gridManager.FindCellAtPosition(column, row) != null ? startPopulation : -1L;
                     }
                 }
             }
@@ -219,23 +225,34 @@ namespace Glitchers.EcoKnow.Sandbox
 
         // Direct lookup-table access used by the aggregation/seed steps in RegionComputeManager
         // and RegionMovement. Bypasses every higher-level helper so the manager can rewrite
-        // populations without recursion.
-        public int RawGetPopulation(int column, int row, int index)
+        // populations without recursion. Operates on the underlying long storage so pollutant
+        // values (~1e14) are preserved without saturation.
+        public long RawGetPopulation(int column, int row, int index)
         {
-            if (_entityLookupTable == null) return -1;
-            if (column < 0 || column >= _entityLookupTable.GetLongLength(0)) return -1;
-            if (row < 0 || row >= _entityLookupTable.GetLongLength(1)) return -1;
-            if (index < 0 || index >= _entityLookupTable.GetLongLength(2)) return -1;
+            if (_entityLookupTable == null) return -1L;
+            if (column < 0 || column >= _entityLookupTable.GetLongLength(0)) return -1L;
+            if (row < 0 || row >= _entityLookupTable.GetLongLength(1)) return -1L;
+            if (index < 0 || index >= _entityLookupTable.GetLongLength(2)) return -1L;
             return _entityLookupTable[column, row, index];
         }
 
-        public void RawSetPopulation(int column, int row, int index, int value)
+        public void RawSetPopulation(int column, int row, int index, long value)
         {
             if (_entityLookupTable == null) return;
             if (column < 0 || column >= _entityLookupTable.GetLongLength(0)) return;
             if (row < 0 || row >= _entityLookupTable.GetLongLength(1)) return;
             if (index < 0 || index >= _entityLookupTable.GetLongLength(2)) return;
             _entityLookupTable[column, row, index] = value;
+        }
+
+        // Saturating cast for UI / consumer paths that still operate in int. Values above
+        // int.MaxValue (e.g. pollutant counts at full pollution) clamp to int.MaxValue;
+        // negative sentinels (invalid cells) survive intact.
+        private static int ClampToInt(long value)
+        {
+            if (value > int.MaxValue) return int.MaxValue;
+            if (value < int.MinValue) return int.MinValue;
+            return (int)value;
         }
         #endregion
 
@@ -281,18 +298,19 @@ namespace Glitchers.EcoKnow.Sandbox
                 Entity type = _entityTypeList[i];
 
                 string id = type.ID;
-                int population = _entityLookupTable[column, row, i];
+                long populationLong = _entityLookupTable[column, row, i];
+                int population = ClampToInt(populationLong);
 
                 CellEntity.State state = CellEntity.State.STABLE;
-                if (population == 0)
+                if (populationLong == 0)
                 {
                     state = CellEntity.State.EXTINCT;
                 }
-                else if (population <= type.VulnerableThreshold)
+                else if (populationLong <= type.VulnerableThreshold)
                 {
                     state = CellEntity.State.VULNERABLE;
                 }
-                else if (population >= type.AbundanceThreshold)
+                else if (populationLong >= type.AbundanceThreshold)
                 {
                     state = CellEntity.State.ABUNDANT;
                 }
@@ -311,7 +329,7 @@ namespace Glitchers.EcoKnow.Sandbox
                 return 0;
             }
 
-            return _entityLookupTable[column, row, index];
+            return ClampToInt(_entityLookupTable[column, row, index]);
         }
 
         public Dictionary<string, int> GetPopulationsInCell(int column, int row)
@@ -321,7 +339,7 @@ namespace Glitchers.EcoKnow.Sandbox
             for (int i = 0; i < EntityTypeCount; i++)
             {
                 Entity type = _entityTypeList[i];
-                int population = _entityLookupTable[column, row, i];
+                int population = ClampToInt(_entityLookupTable[column, row, i]);
                 populations.Add(type.ID, population);
             }
 
@@ -351,21 +369,22 @@ namespace Glitchers.EcoKnow.Sandbox
                 return 0;
             }
 
-            //Find total
-            int totalPopulation = 0;
+            //Find total. Accumulate in long to avoid mid-sum overflow on pollutants;
+            //consumers receive a saturating int (large pollutant totals display as int.MaxValue).
+            long totalPopulation = 0L;
             for (int column = 0; column < _entityLookupTable.GetLongLength(0); column++)
             {
                 for (int row = 0; row < _entityLookupTable.GetLongLength(1); row++)
                 {
-                    int population = _entityLookupTable[column, row, index];
-                    if (population > 0)
+                    long population = _entityLookupTable[column, row, index];
+                    if (population > 0L)
                     {
                         totalPopulation += population; //-1 population means the entity/cell is not valid, so don't add it
                     }
                 }
             }
 
-            return totalPopulation;
+            return ClampToInt(totalPopulation);
         }
 
         public int GetHarvestLimits(int index)
@@ -433,19 +452,19 @@ namespace Glitchers.EcoKnow.Sandbox
                 }
 
                 //Check population
-                int currentPopulation = _entityLookupTable[column, row, index];
-                if (currentPopulation == 0) //Fail interaction if we have nothing to harvest
+                long currentPopulation = _entityLookupTable[column, row, index];
+                if (currentPopulation == 0L) //Fail interaction if we have nothing to harvest
                 {
                     return false;
                 }
 
                 //TODO: We cannot harvest more than we have in the cell, so what sort of user feedback should we get if we try to harvest too much?
 
-                int newPopulation = Mathf.Max(currentPopulation - amount, 0);
-                int difference = newPopulation - currentPopulation;
+                long newPopulation = Math.Max(currentPopulation - amount, 0L);
+                long difference = newPopulation - currentPopulation;
                 _entityLookupTable[column, row, index] = newPopulation;
 
-                SandboxManager.Instance.PlayerInventory.AddQuantities(type.HarvestQuantities, Math.Abs(difference));
+                SandboxManager.Instance.PlayerInventory.AddQuantities(type.HarvestQuantities, (int)Math.Abs(difference));
                 Debug.Log($"{LogChannel} [HARVEST Entity {index}] Current: {currentPopulation} / New: {newPopulation} / Difference: {difference}");
 
                 onEntityHarvested?.Invoke(column, row, index);
@@ -485,9 +504,9 @@ namespace Glitchers.EcoKnow.Sandbox
                     return false;
                 }
 
-                int currentPopulation = _entityLookupTable[column, row, index];
-                int newPopulation = currentPopulation + amount;
-                int difference = newPopulation - currentPopulation;
+                long currentPopulation = _entityLookupTable[column, row, index];
+                long newPopulation = currentPopulation + amount;
+                long difference = newPopulation - currentPopulation;
                 _entityLookupTable[column, row, index] = newPopulation;
 
                 SandboxManager.Instance.PlayerInventory.RemoveQuantities(type.IntroduceQuantities, amount);
@@ -532,8 +551,8 @@ namespace Glitchers.EcoKnow.Sandbox
                             yPos < _entityLookupTable.GetLongLength(1))
                         {
                             //Populations less than 0 are invalid cells
-                            int population = _entityLookupTable[xPos, yPos, entity];
-                            if (population >= 0)
+                            long population = _entityLookupTable[xPos, yPos, entity];
+                            if (population >= 0L)
                             {
                                 neighbours += 1;
                             }

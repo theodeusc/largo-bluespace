@@ -684,6 +684,7 @@ $RECYCLE.BIN/
 # User Defined Ignores
 /creator_old/
 /_classification/
+/_temporary/
 /Assets/Third-Party/TextMesh Pro/*
 
 # Probuilder (switches between CR & LF randomly)

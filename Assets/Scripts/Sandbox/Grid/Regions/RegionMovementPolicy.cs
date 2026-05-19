@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using UnityEngine;
 
 namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
 {
@@ -7,6 +8,35 @@ namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
     // populate the table by calling Allow / AllowBidirectional during scenario load.
     public static class RegionMovementPolicy
     {
+        // Entity IDs the scenario uses for water-borne pollutants. These match the IDs
+        // emitted in Largo.json. If a scenario uses different IDs, register movement
+        // manually; this helper is opt-in (called explicitly by SandboxManager).
+        private static readonly string[] WaterPollutantIds = new[]
+        {
+            "eColi_sewage",
+            "eColi_agri",
+            "phosphate",
+            "sediment",
+            "litter",
+        };
+
+        // One-way pollutant dispersion: freshwater → seawater and overflow → seawater.
+        // Estuary is invisible to movement because its cells alias to a freshwater compute
+        // cell (see RegionComputeManager.BuildEstuaryAliases) — no separate Estuary entry needed.
+        // Called from SandboxManager.SetupAndRunScenario after RegionComputeManager.Initialize.
+        // Safe to call when the scenario lacks one of these IDs: missing entities are skipped.
+        public static void RegisterWaterPollutants(EntityManager entityManager)
+        {
+            if (entityManager == null) return;
+            for (int i = 0; i < WaterPollutantIds.Length; i++)
+            {
+                int entityId = entityManager.GetEntityIndex(WaterPollutantIds[i]);
+                if (entityId < 0) continue;
+                Allow(entityId, RegionType.Freshwater, RegionType.Seawater);
+                Allow(entityId, RegionType.Overflow, RegionType.Seawater);
+            }
+        }
+
         private struct Key
         {
             public int EntityId;

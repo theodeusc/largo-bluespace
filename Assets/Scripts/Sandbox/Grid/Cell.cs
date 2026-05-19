@@ -172,7 +172,26 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
             if (IsVisualInRegionMode()) return;
 
             CellEntity[] entities = GetCellEntities();
-            UpdateTokens(entities);
+            UpdateTokens(FilterHiddenEntities(entities));
+        }
+
+        // Strips entries flagged Entity.HiddenFromCellToken so the count downstream matches
+        // the number of tokens that were actually spawned by SetupEntityTokens. Without this
+        // filter, UpdateTokens' childCount-vs-length safety check aborts the per-frame refresh.
+        private CellEntity[] FilterHiddenEntities(CellEntity[] entities)
+        {
+            if (entities == null) return entities;
+            EntityManager em = SandboxManager.Instance != null ? SandboxManager.Instance.EntityManager : null;
+            if (em == null) return entities;
+
+            List<CellEntity> visible = new List<CellEntity>(entities.Length);
+            for (int i = 0; i < entities.Length; i++)
+            {
+                Entity type = em.GetEntityType(entities[i].Index);
+                if (type != null && type.HiddenFromCellToken) continue;
+                visible.Add(entities[i]);
+            }
+            return visible.ToArray();
         }
 
         private bool IsVisualInRegionMode()
@@ -218,6 +237,11 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
                 for (int i = 0; i < cellEntities.Length; i++)
                 {
                     Entity type = entityManager.GetEntityType(i);
+                    // Per-entity opt-out via Scenario JSON: hidden entities still show in the
+                    // right-side EntityPanel but skip the per-cell token (saves screen space
+                    // for entities the player doesn't need numeric readouts on, e.g. sealife).
+                    if (type != null && type.HiddenFromCellToken) continue;
+
                     int totalPopulation = entityManager.GetTotalPopulationOfEntityType(i);
 
                     Cell_Token token = Instantiate(_cellTokenPrefab, _cellTokenContainer.transform);

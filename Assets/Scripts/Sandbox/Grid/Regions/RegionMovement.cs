@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -11,6 +12,10 @@ namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
     // turns on specific flows without touching this code.
     public static class RegionMovement
     {
+        // Above this total, the per-mover multinomial loop is replaced with a deterministic
+        // proportional split — looping 1e14 times would freeze the game.
+        private const long PerMoverLoopThreshold = 1_000_000L;
+
         public static void Run(EntityManager entityManager, RegionComputeManager regions)
         {
             if (entityManager == null || regions == null || !regions.IsActive) return;
@@ -19,10 +24,10 @@ namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
             if (entityCount <= 0) return;
 
             List<int> regionIds = new List<int>(regions.AllRegionIds);
-            Dictionary<int, int[]> deltas = new Dictionary<int, int[]>();
+            Dictionary<int, long[]> deltas = new Dictionary<int, long[]>();
             for (int i = 0; i < regionIds.Count; i++)
             {
-                deltas[regionIds[i]] = new int[entityCount];
+                deltas[regionIds[i]] = new long[entityCount];
             }
 
             for (int e = 0; e < entityCount; e++)
@@ -66,13 +71,13 @@ namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
                     }
                     if (targets == null) continue;
 
-                    int currentPop = entityManager.RawGetPopulation(center.col, center.row, e);
-                    if (currentPop <= 0) continue;
+                    long currentPop = entityManager.RawGetPopulation(center.col, center.row, e);
+                    if (currentPop <= 0L) continue;
 
-                    int movers = SampleBinomial(currentPop, rate);
-                    if (movers <= 0) continue;
+                    long movers = SampleBinomial(currentPop, rate);
+                    if (movers <= 0L) continue;
 
-                    int[] distribution = SampleMultinomial(movers, targets.Count);
+                    long[] distribution = SampleMultinomial(movers, targets.Count);
 
                     deltas[regionId][e] -= movers;
                     for (int i = 0; i < targets.Count; i++)
@@ -86,58 +91,70 @@ namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
             {
                 int regionId = regionIds[rIdx];
                 if (!regions.TryGetCenterCell(regionId, out var center)) continue;
-                int[] regionDeltas = deltas[regionId];
+                long[] regionDeltas = deltas[regionId];
                 for (int e = 0; e < entityCount; e++)
                 {
-                    int delta = regionDeltas[e];
-                    if (delta == 0) continue;
-                    int pop = entityManager.RawGetPopulation(center.col, center.row, e);
-                    if (pop < 0) continue;
-                    entityManager.RawSetPopulation(center.col, center.row, e, Mathf.Max(0, pop + delta));
+                    long delta = regionDeltas[e];
+                    if (delta == 0L) continue;
+                    long pop = entityManager.RawGetPopulation(center.col, center.row, e);
+                    if (pop < 0L) continue;
+                    entityManager.RawSetPopulation(center.col, center.row, e, Math.Max(0L, pop + delta));
                 }
             }
         }
 
-        private static int SampleBinomial(int n, float p)
+        private static long SampleBinomial(long n, float p)
         {
-            if (n <= 0 || p <= 0f) return 0;
+            if (n <= 0L || p <= 0f) return 0L;
             if (p >= 1f) return n;
 
-            if (n >= 1000)
+            if (n >= 1000L)
             {
-                float mean = n * p;
-                float stdDev = Mathf.Sqrt(n * p * (1f - p));
-                float sample = SampleNormal(mean, stdDev);
-                return Mathf.Clamp(Mathf.RoundToInt(sample), 0, n);
+                double mean = (double)n * p;
+                double stdDev = Math.Sqrt((double)n * p * (1.0 - p));
+                double sample = SampleNormal(mean, stdDev);
+                if (sample <= 0.0) return 0L;
+                if (sample >= (double)n) return n;
+                return (long)Math.Round(sample);
             }
 
             int successes = 0;
-            for (int i = 0; i < n; i++)
+            int small = (int)n;
+            for (int i = 0; i < small; i++)
             {
-                if (Random.Range(0f, 1f) <= p) successes++;
+                if (UnityEngine.Random.Range(0f, 1f) <= p) successes++;
             }
             return successes;
         }
 
-        private static float SampleNormal(float mean, float stdDev)
+        private static double SampleNormal(double mean, double stdDev)
         {
-            float u1 = 1f - Random.Range(0f, 1f);
-            float u2 = 1f - Random.Range(0f, 1f);
-            float standardNormal = Mathf.Sqrt(-2f * Mathf.Log(u1)) * Mathf.Sin(2f * Mathf.PI * u2);
+            double u1 = 1.0 - UnityEngine.Random.Range(0f, 1f);
+            double u2 = 1.0 - UnityEngine.Random.Range(0f, 1f);
+            double standardNormal = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Sin(2.0 * Math.PI * u2);
             return mean + stdDev * standardNormal;
         }
 
-        private static int[] SampleMultinomial(int totalMovers, int categories)
+        private static long[] SampleMultinomial(long totalMovers, int categories)
         {
-            int[] results = new int[categories];
+            long[] results = new long[categories];
             if (categories == 1)
             {
                 results[0] = totalMovers;
                 return results;
             }
-            for (int i = 0; i < totalMovers; i++)
+            if (totalMovers > PerMoverLoopThreshold)
             {
-                results[Random.Range(0, categories)]++;
+                long perCat = totalMovers / categories;
+                long remainder = totalMovers - (perCat * categories);
+                for (int i = 0; i < categories; i++) results[i] = perCat;
+                results[0] += remainder;
+                return results;
+            }
+            int loopCount = (int)totalMovers;
+            for (int i = 0; i < loopCount; i++)
+            {
+                results[UnityEngine.Random.Range(0, categories)]++;
             }
             return results;
         }

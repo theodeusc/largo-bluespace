@@ -11,6 +11,21 @@ using XNode;
 using PackageInfo = UnityEditor.PackageManager.PackageInfo;
 #endif
 
+// Per-zone, per-entity scalar used for baselines and rate tables. Value typed double
+// so pollutant counts (~1e14) survive without precision loss; rates use the same shape
+// for consistency.
+public record ZoneBaseline(int ZoneID, string EntityID, double Value);
+
+// Per-zone, per-entity rate used for both annual additions and annual declines.
+// Decline values are stored as positive magnitudes; the round-event applier flips the sign.
+public record EntityRate(int ZoneID, string EntityID, double Value);
+
+// What a single round of the scenario does to pollutant levels. Multiplier scales both
+// addition and decline rates (0.5 = half, 1.0 = full, 2.0 = double). Nothing is a no-op,
+// useful for in-between rounds where only natural movement / Lotka-Volterra dynamics apply.
+public enum EventKind { Nothing, Addition, Decline }
+public record RoundEvent(EventKind Kind, float Multiplier);
+
 //All data needed to create a scenario
 public record Scenario
     (
@@ -28,7 +43,17 @@ public record Scenario
         Matrix Matrix,
         MapLayout Map,
         Matrix[] Matrices = null,
-        bool UseRegionWideCompute = false
+        bool UseRegionWideCompute = false,
+        // Per-zone, per-entity baseline applied once at scenario start (after region init).
+        // Ignored zones (Grass, Crops, Golf, Sand) get no pollutant entries; sand still
+        // gets seal entries because the baseline rule is keyed on entity, not zone.
+        ZoneBaseline[] ZoneBaselines = null,
+        // Per-round addition / decline rates. Indexed by (ZoneID, EntityID). Skipping a
+        // (zone, entity) pair = no change for that pair on addition / decline rounds.
+        EntityRate[] AnnualAdditions = null,
+        EntityRate[] AnnualDeclines = null,
+        // Ordered length-Rounds schedule. Indices past the end fall back to Nothing.
+        RoundEvent[] RoundSchedule = null
     );
 
 //Header info

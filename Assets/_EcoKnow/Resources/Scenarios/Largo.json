@@ -13,8 +13,80 @@
     "UseRegionWideCompute": true,
     "Entities": [
       {
-        "ID": "autoTilePlaceholder",
-        "Icon": "Icons/rock_high_contrast",
+        "ID": "eColi_sewage",
+        "Icon": "Icons/radioactive_high_contrast",
+        "Colour": "8B5A3CFF",
+        "GrowthRate": 0.0,
+        "MovementRate": 0.5,
+        "VulnerableThreshold": 0.0,
+        "AbundanceThreshold": 0.0,
+        "AutoPlace": false,
+        "StartPopulation": 0,
+        "CanHarvest": false,
+        "CanIntroduce": false,
+        "HarvestLimit": 0,
+        "IntroduceLimit": 0,
+        "HarvestQuantities": null,
+        "IntroduceQuantities": null,
+        "ZoneInformation": []
+      },
+      {
+        "ID": "eColi_agri",
+        "Icon": "Icons/radioactive_high_contrast",
+        "Colour": "FFA500FF",
+        "GrowthRate": 0.0,
+        "MovementRate": 0.5,
+        "VulnerableThreshold": 0.0,
+        "AbundanceThreshold": 0.0,
+        "AutoPlace": false,
+        "StartPopulation": 0,
+        "CanHarvest": false,
+        "CanIntroduce": false,
+        "HarvestLimit": 0,
+        "IntroduceLimit": 0,
+        "HarvestQuantities": null,
+        "IntroduceQuantities": null,
+        "ZoneInformation": []
+      },
+      {
+        "ID": "phosphate",
+        "Icon": "Icons/radioactive_high_contrast",
+        "Colour": "FFD700FF",
+        "GrowthRate": 0.0,
+        "MovementRate": 0.5,
+        "VulnerableThreshold": 0.0,
+        "AbundanceThreshold": 0.0,
+        "AutoPlace": false,
+        "StartPopulation": 0,
+        "CanHarvest": false,
+        "CanIntroduce": false,
+        "HarvestLimit": 0,
+        "IntroduceLimit": 0,
+        "HarvestQuantities": null,
+        "IntroduceQuantities": null,
+        "ZoneInformation": []
+      },
+      {
+        "ID": "sediment",
+        "Icon": "Icons/radioactive_high_contrast",
+        "Colour": "808080FF",
+        "GrowthRate": 0.0,
+        "MovementRate": 0.5,
+        "VulnerableThreshold": 0.0,
+        "AbundanceThreshold": 0.0,
+        "AutoPlace": false,
+        "StartPopulation": 0,
+        "CanHarvest": false,
+        "CanIntroduce": false,
+        "HarvestLimit": 0,
+        "IntroduceLimit": 0,
+        "HarvestQuantities": null,
+        "IntroduceQuantities": null,
+        "ZoneInformation": []
+      },
+      {
+        "ID": "litter",
+        "Icon": "Icons/litter_high_contrast",
         "Colour": "808080FF",
         "GrowthRate": 0.0,
         "MovementRate": 0.0,
@@ -28,50 +100,64 @@
         "IntroduceLimit": 0,
         "HarvestQuantities": null,
         "IntroduceQuantities": null,
-        "ZoneInformation": [
-          {
-            "ZoneID": 0,
-            "GrowthRate": 0.0,
-            "MovementRate": 0.0,
-            "Transitions": []
-          },
-          {
-            "ZoneID": 1,
-            "GrowthRate": 0.0,
-            "MovementRate": 0.0,
-            "Transitions": []
-          },
-          {
-            "ZoneID": 2,
-            "GrowthRate": 0.0,
-            "MovementRate": 0.0,
-            "Transitions": []
-          },
-          {
-            "ZoneID": 4,
-            "GrowthRate": 0.0,
-            "MovementRate": 0.0,
-            "Transitions": []
-          },
-          {
-            "ZoneID": 5,
-            "GrowthRate": 0.0,
-            "MovementRate": 0.0,
-            "Transitions": []
-          },
-          {
-            "ZoneID": 6,
-            "GrowthRate": 0.0,
-            "MovementRate": 0.0,
-            "Transitions": []
-          },
-          {
-            "ZoneID": 8,
-            "GrowthRate": 0.0,
-            "MovementRate": 0.0,
-            "Transitions": []
-          }
-        ]
+        "ZoneInformation": []
+      },
+      {
+        "ID": "seal",
+        "Icon": "Icons/seal_high_contrast",
+        "Colour": "C0C0C0FF",
+        "GrowthRate": 0.0,
+        "MovementRate": 0.0,
+        "VulnerableThreshold": 0.0,
+        "AbundanceThreshold": 0.0,
+        "AutoPlace": false,
+        "StartPopulation": 0,
+        "CanHarvest": false,
+        "CanIntroduce": false,
+        "HarvestLimit": 0,
+        "IntroduceLimit": 0,
+        "HarvestQuantities": null,
+        "IntroduceQuantities": null,
+        "ZoneInformation": [],
+        "HiddenFromCellToken": true
+      },
+      {
+        "ID": "oyster",
+        "Icon": "Icons/oyster_high_contrast",
+        "Colour": "F5F5DCFF",
+        "GrowthRate": 0.0,
+        "MovementRate": 0.0,
+        "VulnerableThreshold": 0.0,
+        "AbundanceThreshold": 0.0,
+        "AutoPlace": false,
+        "StartPopulation": 0,
+        "CanHarvest": false,
+        "CanIntroduce": false,
+        "HarvestLimit": 0,
+        "IntroduceLimit": 0,
+        "HarvestQuantities": null,
+        "IntroduceQuantities": null,
+        "ZoneInformation": [],
+        "HiddenFromCellToken": true
+      },
+      {
+        "ID": "seagrass",
+        "Icon": "PixelArt/Entities/seagrass",
+        "Colour": "228B22FF",
+        "GrowthRate": 0.0,
+        "MovementRate": 0.0,
+        "VulnerableThreshold": 0.0,
+        "AbundanceThreshold": 0.0,
+        "AutoPlace": false,
+        "StartPopulation": 0,
+        "CanHarvest": false,
+        "CanIntroduce": false,
+        "HarvestLimit": 0,
+        "IntroduceLimit": 0,
+        "HarvestQuantities": null,
+        "IntroduceQuantities": null,
+        "ZoneInformation": [],
+        "HiddenFromCellToken": true
       }
     ],
     "Items": null,
@@ -88,12 +174,24 @@
     ],
     "Matrix": {
       "entityIDs": [
-        "autoTilePlaceholder"
+        "eColi_sewage",
+        "eColi_agri",
+        "phosphate",
+        "sediment",
+        "litter",
+        "seal",
+        "oyster",
+        "seagrass"
       ],
       "entityMatrix": [
-        [
-          0.0
-        ]
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, -0.001, 0.086, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.0, -0.001, 0.0, 0.1, 0.0],
+        [0.0, 0.0, 0.0, 0.0, -0.001, 0.0, 0.0, 0.1]
       ],
       "zoneIndex": 0
     },
@@ -13271,84 +13369,72 @@
         "bgColour": "#0F1A2B"
       }
     },
-    "Matrices": [
-      {
-        "entityIDs": [
-          "autoTilePlaceholder"
-        ],
-        "entityMatrix": [
-          [
-            0.0
-          ]
-        ],
-        "zoneIndex": 0
-      },
-      {
-        "entityIDs": [
-          "autoTilePlaceholder"
-        ],
-        "entityMatrix": [
-          [
-            0.0
-          ]
-        ],
-        "zoneIndex": 1
-      },
-      {
-        "entityIDs": [
-          "autoTilePlaceholder"
-        ],
-        "entityMatrix": [
-          [
-            0.0
-          ]
-        ],
-        "zoneIndex": 2
-      },
-      {
-        "entityIDs": [
-          "autoTilePlaceholder"
-        ],
-        "entityMatrix": [
-          [
-            0.0
-          ]
-        ],
-        "zoneIndex": 4
-      },
-      {
-        "entityIDs": [
-          "autoTilePlaceholder"
-        ],
-        "entityMatrix": [
-          [
-            0.0
-          ]
-        ],
-        "zoneIndex": 5
-      },
-      {
-        "entityIDs": [
-          "autoTilePlaceholder"
-        ],
-        "entityMatrix": [
-          [
-            0.0
-          ]
-        ],
-        "zoneIndex": 6
-      },
-      {
-        "entityIDs": [
-          "autoTilePlaceholder"
-        ],
-        "entityMatrix": [
-          [
-            0.0
-          ]
-        ],
-        "zoneIndex": 8
-      }
+    "Matrices": null,
+    "ZoneBaselines": [
+      { "ZoneID": 4, "EntityID": "eColi_sewage", "Value": 3.0e9 },
+      { "ZoneID": 4, "EntityID": "eColi_agri", "Value": 6.0e9 },
+      { "ZoneID": 4, "EntityID": "phosphate", "Value": 5.0 },
+      { "ZoneID": 4, "EntityID": "sediment", "Value": 1500.0 },
+      { "ZoneID": 4, "EntityID": "litter", "Value": 2.5 },
+      { "ZoneID": 0, "EntityID": "eColi_sewage", "Value": 5.0e8 },
+      { "ZoneID": 0, "EntityID": "eColi_agri", "Value": 4.0e8 },
+      { "ZoneID": 0, "EntityID": "phosphate", "Value": 10.0 },
+      { "ZoneID": 0, "EntityID": "sediment", "Value": 3000.0 },
+      { "ZoneID": 0, "EntityID": "litter", "Value": 1.0 },
+      { "ZoneID": 0, "EntityID": "oyster", "Value": 200.0 },
+      { "ZoneID": 0, "EntityID": "seagrass", "Value": 200.0 },
+      { "ZoneID": 8, "EntityID": "eColi_sewage", "Value": 5.0e8 },
+      { "ZoneID": 8, "EntityID": "eColi_agri", "Value": 4.0e8 },
+      { "ZoneID": 8, "EntityID": "phosphate", "Value": 10.0 },
+      { "ZoneID": 8, "EntityID": "sediment", "Value": 3000.0 },
+      { "ZoneID": 8, "EntityID": "litter", "Value": 1.0 },
+      { "ZoneID": 1, "EntityID": "seal", "Value": 1.0 }
+    ],
+    "AnnualAdditions": [
+      { "ZoneID": 4, "EntityID": "eColi_sewage", "Value": 3.0e14 },
+      { "ZoneID": 4, "EntityID": "eColi_agri", "Value": 1.8e9 },
+      { "ZoneID": 4, "EntityID": "phosphate", "Value": 0.6 },
+      { "ZoneID": 4, "EntityID": "sediment", "Value": 750.0 },
+      { "ZoneID": 4, "EntityID": "litter", "Value": 0.4 },
+      { "ZoneID": 0, "EntityID": "eColi_sewage", "Value": 3.0e13 },
+      { "ZoneID": 0, "EntityID": "eColi_agri", "Value": 8.0e7 },
+      { "ZoneID": 0, "EntityID": "phosphate", "Value": 0.21 },
+      { "ZoneID": 0, "EntityID": "sediment", "Value": 240.0 },
+      { "ZoneID": 0, "EntityID": "litter", "Value": 0.05 },
+      { "ZoneID": 8, "EntityID": "eColi_sewage", "Value": 3.0e13 },
+      { "ZoneID": 8, "EntityID": "eColi_agri", "Value": 8.0e7 },
+      { "ZoneID": 8, "EntityID": "phosphate", "Value": 0.21 },
+      { "ZoneID": 8, "EntityID": "sediment", "Value": 240.0 },
+      { "ZoneID": 8, "EntityID": "litter", "Value": 0.05 }
+    ],
+    "AnnualDeclines": [
+      { "ZoneID": 4, "EntityID": "eColi_sewage", "Value": 2.1e14 },
+      { "ZoneID": 4, "EntityID": "eColi_agri", "Value": 3.0e9 },
+      { "ZoneID": 4, "EntityID": "phosphate", "Value": 0.4 },
+      { "ZoneID": 4, "EntityID": "sediment", "Value": 600.0 },
+      { "ZoneID": 4, "EntityID": "litter", "Value": 0.08 },
+      { "ZoneID": 0, "EntityID": "eColi_sewage", "Value": 2.4e13 },
+      { "ZoneID": 0, "EntityID": "eColi_agri", "Value": 2.8e8 },
+      { "ZoneID": 0, "EntityID": "phosphate", "Value": 0.15 },
+      { "ZoneID": 0, "EntityID": "sediment", "Value": 300.0 },
+      { "ZoneID": 0, "EntityID": "litter", "Value": 0.006 },
+      { "ZoneID": 8, "EntityID": "eColi_sewage", "Value": 2.4e13 },
+      { "ZoneID": 8, "EntityID": "eColi_agri", "Value": 2.8e8 },
+      { "ZoneID": 8, "EntityID": "phosphate", "Value": 0.15 },
+      { "ZoneID": 8, "EntityID": "sediment", "Value": 300.0 },
+      { "ZoneID": 8, "EntityID": "litter", "Value": 0.006 }
+    ],
+    "RoundSchedule": [
+      { "Kind": 0, "Multiplier": 0.0 },
+      { "Kind": 1, "Multiplier": 1.0 },
+      { "Kind": 2, "Multiplier": 1.0 },
+      { "Kind": 0, "Multiplier": 0.0 },
+      { "Kind": 1, "Multiplier": 1.0 },
+      { "Kind": 2, "Multiplier": 1.0 },
+      { "Kind": 0, "Multiplier": 0.0 },
+      { "Kind": 1, "Multiplier": 1.0 },
+      { "Kind": 2, "Multiplier": 1.0 },
+      { "Kind": 0, "Multiplier": 0.0 }
     ]
   }
 }

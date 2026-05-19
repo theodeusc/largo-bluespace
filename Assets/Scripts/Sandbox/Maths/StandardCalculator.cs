@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Collections.Generic;
 using Glitchers.EcoKnow.Sandbox.Grid;
@@ -11,7 +12,7 @@ namespace Glitchers.EcoKnow.Sandbox
         public string Name() => "Standard";
         public string Version() => "1.0";
 
-        public void CalculatePopulations(EntityManager entityManager, int[,,] entityLookupTable)
+        public void CalculatePopulations(EntityManager entityManager, long[,,] entityLookupTable)
         {
             if (entityManager == null)
             {
@@ -68,17 +69,23 @@ namespace Glitchers.EcoKnow.Sandbox
                         return;
                     }
 
-                    float[] r = entityManager.GetEntityTypeList().Select(x => x.ZoneInformation != null && x.ZoneInformation.FirstOrDefault(z => z.ZoneID == zone) != null ? x.ZoneInformation.FirstOrDefault(z => z.ZoneID == zone).GrowthRate : x.GrowthRate).ToArray();
-                    float[] N = entityList.Select(x => (float)x.Population).ToArray();
+                    double[] r = entityManager.GetEntityTypeList().Select(x => (double)(x.ZoneInformation != null && x.ZoneInformation.FirstOrDefault(z => z.ZoneID == zone) != null ? x.ZoneInformation.FirstOrDefault(z => z.ZoneID == zone).GrowthRate : x.GrowthRate)).ToArray();
+                    // Read N directly from the long lookup table (not CellEntity.Population)
+                    // so values above int.MaxValue (pollutants) survive into the math.
+                    double[] N = new double[entityManager.EntityTypeCount];
+                    for (int n = 0; n < N.Length; n++)
+                    {
+                        N[n] = (double)entityLookupTable[column, row, n];
+                    }
 
                     //AN
-                    float[] AN = new float[entityManager.EntityTypeCount];
+                    double[] AN = new double[entityManager.EntityTypeCount];
                     for (int yy = 0; yy < A.GetLongLength(1); yy++)
                     {
-                        float result = 0f;
+                        double result = 0.0;
                         for (int xx = 0; xx < A.GetLongLength(0); xx++)
                         {
-                            result += A[xx, yy] * N[xx];
+                            result += (double)A[xx, yy] * N[xx];
                             //Debug.Log(A[xx, yy]);
                         }
 
@@ -86,7 +93,7 @@ namespace Glitchers.EcoKnow.Sandbox
                     }
 
                     //N + N.(r + AN)
-                    float[] NNrAN = new float[entityManager.EntityTypeCount];
+                    double[] NNrAN = new double[entityManager.EntityTypeCount];
                     for (int a = 0; a < N.Length; a++)
                     {
                         NNrAN[a] = N[a] + (N[a] * (r[a] + AN[a]));
@@ -96,13 +103,25 @@ namespace Glitchers.EcoKnow.Sandbox
                     //Update entity numbers
                     for (int b = 0; b < NNrAN.Length; b++)
                     {
-                        entityLookupTable[column, row, b] = Mathf.Max(0, Mathf.FloorToInt(NNrAN[b]));
+                        double v = NNrAN[b];
+                        if (double.IsNaN(v) || v <= 0.0)
+                        {
+                            entityLookupTable[column, row, b] = 0L;
+                        }
+                        else if (v >= (double)long.MaxValue)
+                        {
+                            entityLookupTable[column, row, b] = long.MaxValue;
+                        }
+                        else
+                        {
+                            entityLookupTable[column, row, b] = (long)Math.Floor(v);
+                        }
                     }
                 }
             }
         }
 
-        public void CalculateMovement(EntityManager entityManager, int[,,] entityLookupTable)
+        public void CalculateMovement(EntityManager entityManager, long[,,] entityLookupTable)
         {
             if (entityManager == null)
             {
@@ -128,15 +147,15 @@ namespace Glitchers.EcoKnow.Sandbox
 
                 if (entity.MovementRate > 0f || (entity.ZoneInformation != null && entity.ZoneInformation.Any(x => x.MovementRate > 0f)))
                 {
-                    int[,,] movementTable = new int[entityLookupTable.GetLongLength(0), entityLookupTable.GetLongLength(1), entityLookupTable.GetLongLength(2)];
+                    long[,,] movementTable = new long[entityLookupTable.GetLongLength(0), entityLookupTable.GetLongLength(1), entityLookupTable.GetLongLength(2)];
 
                     //Move our requested entity in each cell
                     for (int column = 0; column < entityLookupTable.GetLongLength(0); column++)
                     {
                         for (int row = 0; row < entityLookupTable.GetLongLength(1); row++)
                         {
-                            int currentPopulation = entityLookupTable[column, row, i];
-                            if (currentPopulation < 0)
+                            long currentPopulation = entityLookupTable[column, row, i];
+                            if (currentPopulation < 0L)
                             {
                                 //This cell/entity is empty, do not perform movement calculations
                                 continue;
@@ -160,12 +179,12 @@ namespace Glitchers.EcoKnow.Sandbox
                             }
 
                             // 1. Sample number of movers from Binomial distribution
-                            int entitiesToMove = SampleBinomial(currentPopulation, movementRate);
+                            long entitiesToMove = SampleBinomial(currentPopulation, movementRate);
 
-                            if (entitiesToMove > 0)
+                            if (entitiesToMove > 0L)
                             {
                                 // 2. Distribute movers among neighbors using equal probabilities
-                                int[] moversPerNeighbor = SampleMultinomial(entitiesToMove, neighbouringCellCount);
+                                long[] moversPerNeighbor = SampleMultinomial(entitiesToMove, neighbouringCellCount);
 
                                 // 3. Apply movement to movementTable
                                 movementTable[column, row, i] -= entitiesToMove;
@@ -185,9 +204,9 @@ namespace Glitchers.EcoKnow.Sandbox
                         for (int row = 0; row < entityLookupTable.GetLongLength(1); row++)
                         {
                             //Check for valid cell
-                            if (entityLookupTable[column, row, i] >= 0)
+                            if (entityLookupTable[column, row, i] >= 0L)
                             {
-                                entityLookupTable[column, row, i] = Mathf.Max(0, entityLookupTable[column, row, i] + movementTable[column, row, i]);
+                                entityLookupTable[column, row, i] = Math.Max(0L, entityLookupTable[column, row, i] + movementTable[column, row, i]);
                             }
                         }
                     }
@@ -196,7 +215,7 @@ namespace Glitchers.EcoKnow.Sandbox
         }
 
         // Helper method to get valid neighbor coordinates, with zone transition filtering
-        private List<Vector2Int> GetValidNeighbors(EntityManager entityManager, int[,,] entityLookupTable, int column, int row, int entityIndex, Entity entity = null, int currentZone = 0)
+        private List<Vector2Int> GetValidNeighbors(EntityManager entityManager, long[,,] entityLookupTable, int column, int row, int entityIndex, Entity entity = null, int currentZone = 0)
         {
             List<Vector2Int> validNeighbors = new List<Vector2Int>();
 
@@ -216,7 +235,7 @@ namespace Glitchers.EcoKnow.Sandbox
                     }
 
                     // Check if the target cell is valid for this entity
-                    if (entityLookupTable[xPos, yPos, entityIndex] >= 0)
+                    if (entityLookupTable[xPos, yPos, entityIndex] >= 0L)
                     {
                         // Check zone transition rules
                         if (entity != null && entity.ZoneInformation != null)
@@ -238,27 +257,32 @@ namespace Glitchers.EcoKnow.Sandbox
             return validNeighbors;
         }
 
-        // Binomial sampling with n=1000 threshold compromise
-        private int SampleBinomial(int n, float p)
+        // Binomial sampling with n=1000 threshold compromise.
+        // Operates in double for the normal-approximation branch so populations up to ~1e15
+        // (pollutant counts) sample without catastrophic float-precision loss.
+        private long SampleBinomial(long n, float p)
         {
-            if (n <= 0 || p <= 0) return 0;
-            if (p >= 1) return n;
-            
+            if (n <= 0L || p <= 0f) return 0L;
+            if (p >= 1f) return n;
+
             // Use normal approximation for large populations (n >= 1000)
-            if (n >= 1000)
+            if (n >= 1000L)
             {
-                float mean = n * p;
-                float stdDev = Mathf.Sqrt(n * p * (1 - p));
-                float sample = SampleNormal(mean, stdDev);
-                return Mathf.Clamp(Mathf.RoundToInt(sample), 0, n);
+                double mean = (double)n * p;
+                double stdDev = Math.Sqrt((double)n * p * (1.0 - p));
+                double sample = SampleNormal(mean, stdDev);
+                if (sample <= 0.0) return 0L;
+                if (sample >= (double)n) return n;
+                return (long)Math.Round(sample);
             }
             // Use exact binomial sampling for small populations (n < 1000)
             else
             {
                 int successes = 0;
-                for (int i = 0; i < n; i++)
+                int small = (int)n;
+                for (int i = 0; i < small; i++)
                 {
-                    if (Random.Range(0f, 1f) <= p)
+                    if (UnityEngine.Random.Range(0f, 1f) <= p)
                     {
                         successes++;
                     }
@@ -268,29 +292,42 @@ namespace Glitchers.EcoKnow.Sandbox
         }
 
         // Normal distribution sampling using Box-Muller transform
-        private float SampleNormal(float mean, float stdDev)
+        private double SampleNormal(double mean, double stdDev)
         {
-            float u1 = 1.0f - Random.Range(0f, 1f);
-            float u2 = 1.0f - Random.Range(0f, 1f);
-            float randStdNormal = Mathf.Sqrt(-2.0f * Mathf.Log(u1)) * Mathf.Sin(2.0f * Mathf.PI * u2);
+            double u1 = 1.0 - UnityEngine.Random.Range(0f, 1f);
+            double u2 = 1.0 - UnityEngine.Random.Range(0f, 1f);
+            double randStdNormal = Math.Sqrt(-2.0 * Math.Log(u1)) * Math.Sin(2.0 * Math.PI * u2);
             return mean + stdDev * randStdNormal;
         }
 
-        // Multinomial sampling for distributing movers among neighbors
-        private int[] SampleMultinomial(int totalMovers, int numberOfCategories)
+        // Multinomial sampling for distributing movers among neighbors.
+        // For huge totals (e.g. pollutants ~1e14) the per-mover loop would freeze the game,
+        // so we switch to a deterministic proportional split above a safety threshold.
+        private const long PerMoverLoopThreshold = 1_000_000L;
+        private long[] SampleMultinomial(long totalMovers, int numberOfCategories)
         {
-            int[] results = new int[numberOfCategories];
-            
+            long[] results = new long[numberOfCategories];
+
             if (numberOfCategories == 1)
             {
                 results[0] = totalMovers;
                 return results;
             }
 
-            // Distribute movers one by one to random neighbors
-            for (int i = 0; i < totalMovers; i++)
+            if (totalMovers > PerMoverLoopThreshold)
             {
-                int chosenNeighbor = Random.Range(0, numberOfCategories);
+                long perCat = totalMovers / numberOfCategories;
+                long remainder = totalMovers - (perCat * numberOfCategories);
+                for (int i = 0; i < numberOfCategories; i++) results[i] = perCat;
+                results[0] += remainder;
+                return results;
+            }
+
+            // Distribute movers one by one to random neighbors
+            int loopCount = (int)totalMovers;
+            for (int i = 0; i < loopCount; i++)
+            {
+                int chosenNeighbor = UnityEngine.Random.Range(0, numberOfCategories);
                 results[chosenNeighbor]++;
             }
 

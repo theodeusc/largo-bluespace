@@ -7,7 +7,7 @@ namespace Glitchers.EcoKnow.Sandbox
         public string Name();
         public string Version();
 
-        public void CalculatePopulations(EntityManager entityManager, int[,,] entityLookupTable);
-        public void CalculateMovement(EntityManager entityManager, int[,,] entityLookupTable);
+        public void CalculatePopulations(EntityManager entityManager, long[,,] entityLookupTable);
+        public void CalculateMovement(EntityManager entityManager, long[,,] entityLookupTable);
     }
 }
