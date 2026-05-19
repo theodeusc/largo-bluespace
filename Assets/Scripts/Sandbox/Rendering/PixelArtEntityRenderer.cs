@@ -27,7 +27,7 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
         // and z = 0 so sprites render on top of everything in the scene regardless of the
         // group's declared RenderAboveTerrain. Useful for verifying placement and import
         // before fixing real layering. Flip back to false once visuals are confirmed.
-        private const bool DebugDrawOnTop = true;
+        private const bool DebugDrawOnTop = false;
         private const int DebugSortingOrder = 1000;
 
         private static PixelArtEntityRenderer _instance;
@@ -62,9 +62,16 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
             public Sprite Sprite;
             // Continuous world-space placements (sub-cell precision). One sprite per entry.
             public IReadOnlyList<Vector3> Positions;
+            // Per-sprite Z-axis rotation in degrees, parallel to Positions. Null = no
+            // rotation. When non-null, length must match Positions.Count.
+            public IReadOnlyList<float> Rotations;
             // Terrain whose visual tilemap this group draws ABOVE. The next-higher layer
             // still occludes — e.g. "sand" puts sprites above sand but below sea.
+            // Ignored when RenderAboveAllTerrain is true.
             public string RenderAboveTerrain;
+            // When true, the group renders above every terrain layer regardless of
+            // RenderAboveTerrain. Use for entities that should never be occluded.
+            public bool RenderAboveAllTerrain;
             // World-space size of the sprite's longest edge. Sprites stay pixel-perfect
             // (no filtering) and are uniformly scaled to hit this size.
             public float WorldSize;
@@ -88,12 +95,23 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
             Transform container = GetOrCreateContainer(request.GroupId);
             ClearChildren(container);
 
-            int sortingOrder = DebugDrawOnTop
-                ? DebugSortingOrder
-                : TerrainPriority.SortingOrderOf(request.RenderAboveTerrain);
-            float z = DebugDrawOnTop
-                ? 0f
-                : TerrainPriority.ZAbove(request.RenderAboveTerrain);
+            int sortingOrder;
+            float z;
+            if (DebugDrawOnTop)
+            {
+                sortingOrder = DebugSortingOrder;
+                z = 0f;
+            }
+            else if (request.RenderAboveAllTerrain)
+            {
+                sortingOrder = TerrainPriority.AboveAllTerrainSortingOrder;
+                z = 0f;
+            }
+            else
+            {
+                sortingOrder = TerrainPriority.SortingOrderOf(request.RenderAboveTerrain);
+                z = TerrainPriority.ZAbove(request.RenderAboveTerrain);
+            }
             // Sprite's native world size at default scale = pixels / PPU. We rescale so
             // the larger of width/height matches request.WorldSize, preserving aspect.
             float spriteMax = Mathf.Max(request.Sprite.bounds.size.x, request.Sprite.bounds.size.y);
@@ -112,6 +130,10 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
                 spriteGO.transform.SetParent(container, false);
                 spriteGO.transform.localPosition = pos;
                 spriteGO.transform.localScale = new Vector3(scale, scale, 1f);
+                if (request.Rotations != null)
+                {
+                    spriteGO.transform.localRotation = Quaternion.Euler(0f, 0f, request.Rotations[i]);
+                }
 
                 SpriteRenderer sr = spriteGO.AddComponent<SpriteRenderer>();
                 sr.sprite = request.Sprite;

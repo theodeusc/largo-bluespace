@@ -67,7 +67,7 @@ Shader "EcoKnow/Water"
         _DiffusionTintColor ("Diffusion Tint (sea side)", Color) = (0.227, 0.533, 0.745, 1)
         _DiffusionTintStrength ("Diffusion Tint Strength", Range(0,1)) = 0.7
         _SeaUnderFreshStrength ("Sea-Under-Fresh Fade", Range(0,1)) = 0
-        _SeaEdgeAlphaFade ("Sea Edge Alpha Fade", Range(0,1)) = 0.36
+        _ShoreFadeExtent ("Shore Fade Extent", Range(1.0, 8.0)) = 2.0
 
         // Freshwater interior alpha floor. The shared shore-alpha taper makes
         // sense for the bay's gradual beach but turns 1-2 tile rivers
@@ -180,7 +180,7 @@ Shader "EcoKnow/Water"
             fixed4 _DiffusionTintColor;
             float _DiffusionTintStrength;
             float _SeaUnderFreshStrength;
-            float _SeaEdgeAlphaFade;
+            float _ShoreFadeExtent;
             fixed4 _OverflowTintColor;
             float _OverflowTintStrength;
             float _FreshwaterMinAlpha;
@@ -402,10 +402,13 @@ Shader "EcoKnow/Water"
                 {
                     float noise = valueNoise(i.worldUV * 3.0 + _Time.y * 0.2);
                     float inv = 1.0 - effectiveBlend;
-                    float transparency = inv * inv;
+                    // Inverted-pow curve: higher _ShoreFadeExtent = wider band with
+                    // a gradual deep-side fade. Halo factor suppresses the taper
+                    // in the fresh-diffusion / estuary zone.
+                    float transparency = (1.0 - pow(1.0 - inv, _ShoreFadeExtent)) * (1.0 - altSample4.a);
                     shoreAlpha = 1.0 - transparency * (0.25 + noise * 0.1);
                 }
-                waterColor.a = max(shoreAlpha, foamAlpha);
+                waterColor.a *= max(shoreAlpha, foamAlpha);
 
                 // ---- freshwater↔seawater diffusion ----
                 // Both diffusion fields are BFS distance fields baked with the same
@@ -438,17 +441,11 @@ Shader "EcoKnow/Water"
                 {
                     // Colour tints (diffusion + overflow) were applied earlier so
                     // caustics/specular/foam can render on top. This branch only
-                    // adjusts alpha now.
-                    // Two-stage alpha fade for sea-under-fresh:
-                    //   • _SeaUnderFreshStrength applies linearly with halo across the
-                    //     whole plume — keeps the tinted sea visible far from the seam.
-                    //   • _SeaEdgeAlphaFade reuses foamEdgeMask (binary 1 in the
-                    //     sprite-edge band that foam uses) gated by halo so the fade
-                    //     only fires on dual-grid edge pixels at the sea↔fresh seam —
-                    //     the silhouette — without touching the plume's interior sea.
+                    // adjusts alpha now. _SeaUnderFreshStrength applies linearly
+                    // with halo across the whole plume — keeps the tinted sea
+                    // visible far from the seam.
                     float halo = altSample4.a;
                     waterColor.a *= 1.0 - halo * _SeaUnderFreshStrength;
-                    waterColor.a *= 1.0 - foamEdgeMask * halo * _SeaEdgeAlphaFade;
                 }
 
                 return waterColor * i.color;

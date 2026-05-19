@@ -38,7 +38,7 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
         private const string OysterGroupId = "test_oyster";
 
         // Visual sizes in world units (1 unit = 1 cell). Seals are big, oysters tiny.
-        private const float SealWorldSize = 0.7f;
+        private const float SealWorldSize = 2.1f;
         private const float SeagrassWorldSize = 0.35f;
         private const float OysterWorldSize = 0.18f;
 
@@ -172,7 +172,8 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
                 count: OystersPerSeaRegion,
                 worldSize: OysterWorldSize,
                 settings: OysterSettings,
-                rng: rng);
+                rng: rng,
+                randomRotation: true);
             PlaceWaterEntity(
                 regions, grid, seagrassSprite,
                 groupId: SeagrassGroupId,
@@ -207,8 +208,9 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
                 GroupId = SealGroupId,
                 Sprite = sprite,
                 Positions = positions,
-                // Seal sits on beach: above sand, no overlapping water layer in beach regions.
-                RenderAboveTerrain = TilesetConstants.Sand,
+                // Seal renders above every terrain layer so it isn't occluded by sand,
+                // grass, or water as it wanders across the shoreline.
+                RenderAboveAllTerrain = true,
                 WorldSize = SealWorldSize,
                 Tint = Color.white
             });
@@ -223,7 +225,8 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
             int count,
             float worldSize,
             PixelArtDistributionSampler.Settings settings,
-            System.Random rng)
+            System.Random rng,
+            bool randomRotation = false)
         {
             List<Vector3> allPositions = new List<Vector3>();
             foreach (int regionId in regions.AllRegionIds)
@@ -237,11 +240,22 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
                 allPositions.AddRange(regionPositions);
             }
 
+            List<float> rotations = null;
+            if (randomRotation)
+            {
+                rotations = new List<float>(allPositions.Count);
+                for (int i = 0; i < allPositions.Count; i++)
+                {
+                    rotations.Add((float)(rng.NextDouble() * 360.0));
+                }
+            }
+
             PixelArtEntityRenderer.Instance.RegisterGroup(new PixelArtEntityRenderer.GroupRequest
             {
                 GroupId = groupId,
                 Sprite = sprite,
                 Positions = allPositions,
+                Rotations = rotations,
                 RenderAboveTerrain = renderAboveTerrain,
                 WorldSize = worldSize,
                 Tint = Color.white

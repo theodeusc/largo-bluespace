@@ -85,6 +85,10 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         public const float LayerZStep = 0.01f;
         public const float WithinLayerZStep = 0.005f;
 
+        // SortingOrder for sprites that should sit above every terrain layer.
+        // Derived from Layers.Length so it stays correct if the layer scheme grows.
+        public static readonly int AboveAllTerrainSortingOrder = TerrainSortingOrderBase + Layers.Length;
+
         // Returns the sortingOrder used by the visual tilemap of the given terrain.
         // Pixel-art entities that should render between two terrain layers use the
         // sortingOrder of the LOWER layer and rely on z within that order to draw above
