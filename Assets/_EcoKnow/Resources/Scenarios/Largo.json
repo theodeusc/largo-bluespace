@@ -13388,6 +13388,7 @@
       { "ZoneID": 8, "EntityID": "phosphate", "Value": 10.0 },
       { "ZoneID": 8, "EntityID": "sediment", "Value": 3000.0 },
       { "ZoneID": 8, "EntityID": "litter", "Value": 1.0 },
+      { "ZoneID": 1, "EntityID": "litter", "Value": 0.5 },
       { "ZoneID": 1, "EntityID": "seal", "Value": 1.0 }
     ],
     "AnnualAdditions": [
@@ -13405,7 +13406,8 @@
       { "ZoneID": 8, "EntityID": "eColi_agri", "Value": 8.0e7 },
       { "ZoneID": 8, "EntityID": "phosphate", "Value": 0.21 },
       { "ZoneID": 8, "EntityID": "sediment", "Value": 240.0 },
-      { "ZoneID": 8, "EntityID": "litter", "Value": 0.05 }
+      { "ZoneID": 8, "EntityID": "litter", "Value": 0.05 },
+      { "ZoneID": 1, "EntityID": "litter", "Value": 0.05 }
     ],
     "AnnualDeclines": [
       { "ZoneID": 4, "EntityID": "eColi_sewage", "Value": 2.1e14 },
@@ -13422,7 +13424,8 @@
       { "ZoneID": 8, "EntityID": "eColi_agri", "Value": 2.8e8 },
       { "ZoneID": 8, "EntityID": "phosphate", "Value": 0.15 },
       { "ZoneID": 8, "EntityID": "sediment", "Value": 300.0 },
-      { "ZoneID": 8, "EntityID": "litter", "Value": 0.006 }
+      { "ZoneID": 8, "EntityID": "litter", "Value": 0.006 },
+      { "ZoneID": 1, "EntityID": "litter", "Value": 0.005 }
     ],
     "RoundSchedule": [
       { "Kind": 0, "Multiplier": 0.0 },

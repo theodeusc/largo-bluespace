@@ -110,6 +110,13 @@ namespace Glitchers.EcoKnow.Sandbox
         // replays (use Cleanup hooks or idempotent setup).
         public event Action OnScenarioReady;
 
+        // Fires at the end of StartNewRound, after RoundEventApplier has applied this round's
+        // addition / decline events and the grid/UI/water-tint have been refreshed. Includes
+        // round 0 (the initial round triggered from SetupAndRunScenario), so listeners that
+        // need to render in response to settled per-round populations can subscribe to this
+        // single event instead of pairing OnScenarioReady with a separate per-round hook.
+        public event Action OnRoundAdvanced;
+
         private const string LogChannel = "[SandboxManager]";
 
         #region Lifecycle
@@ -403,6 +410,11 @@ namespace Glitchers.EcoKnow.Sandbox
                 //Capture here to make sure we have our starting action count and Player index
                 DataManager.Instance.RecordEvent(Data.EventType.GAME_START);
             }
+
+            //Notify per-round listeners (e.g. pixel-art entity spawner re-rendering bottles
+            //driven by litter populations). Fires after the round's events have been applied
+            //and the grid/water-tint have been refreshed, so listeners read settled state.
+            OnRoundAdvanced?.Invoke();
         }
 
         private void EndGame()

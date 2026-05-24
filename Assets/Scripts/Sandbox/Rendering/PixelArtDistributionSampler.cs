@@ -6,9 +6,11 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
 {
     // Static helper for stochastic, continuous-position placement of pixel-art entities
     // within a region. Combines:
-    //   • A per-cell weight that biases selection toward beach-adjacent cells (configurable
-    //     via beachAttraction). When attraction is 0 the distribution is uniform over the
-    //     region; as it grows the distribution collapses onto the shoreline.
+    //   • A per-cell weight that optionally biases selection toward cells adjacent to a
+    //     configured attraction zone (Settings.AttractionZoneId). When Settings.BeachAttraction
+    //     is 0 the BFS distance field is skipped entirely and the distribution is uniform
+    //     across the supplied cells; as attraction grows the distribution collapses onto
+    //     the shoreline of that zone.
     //   • Sub-cell jitter so multiple sprites in the same cell each land at unique
     //     world-space positions rather than stacking on the cell centre.
     //   • Perlin-noise density masking so sprites form natural clumps and bare patches
@@ -32,8 +34,10 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
         public struct Settings
         {
             public float PerlinScale;       // Noise frequency. Larger = finer/tighter clumps.
-            public float BeachAttraction;   // 0 = uniform, larger = stronger shoreline bias.
-            public float BeachDistanceScale;// Cells of "reach" for the attraction falloff. Larger = entities far from shore still attracted.
+            public float BeachAttraction;   // 0 = uniform (BFS skipped), larger = stronger shoreline bias.
+            public float BeachDistanceScale;// Cells of "reach" for the attraction falloff. Larger = entities far from shore still attracted. Unused when BeachAttraction <= 0.
+            public int AttractionZoneId;    // Zone id whose adjacent cells the bias pulls toward. Unused when BeachAttraction <= 0.
+            public int EdgeBufferCells;     // Cells closer than this to the region boundary are excluded from selection. 0 = no buffer (entities can sit on the boundary). 1 = exclude only the boundary cells. Falls back to no buffer if the region is too small to satisfy the buffer.
         }
 
         // Produces `count` world-space positions distributed across the given region
@@ -43,7 +47,6 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
             IReadOnlyList<(int col, int row)> regionCells,
             int count,
             GridManager grid,
-            int beachZoneId,
             Settings settings,
             System.Random rng)
         {
@@ -53,13 +56,30 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
                 return positions;
             }
 
-            float[] beachDistances = ComputeBeachDistances(regionCells, grid, beachZoneId);
-            float[] cumulativeWeights = BuildCumulativeWeights(beachDistances, settings);
+            // Optional edge-buffer mask: cells closer than EdgeBufferCells to the region
+            // boundary get zero weight (and so won't be selected). Built once per call and
+            // shared by both the attraction and uniform weighting paths.
+            bool[] validMask = settings.EdgeBufferCells > 0
+                ? ComputeInteriorMask(regionCells, settings.EdgeBufferCells)
+                : null;
+
+            // BFS distance field is only built when attraction is requested. With attraction
+            // off, every cell weighs the same and the cumulative array degenerates to 1..N
+            // (modulo the buffer mask).
+            float[] cumulativeWeights = BuildWeightedCumulative(regionCells, grid, settings, validMask);
             float totalWeight = cumulativeWeights[cumulativeWeights.Length - 1];
+
+            // Buffer was so aggressive it excluded every cell (region too small): retry with
+            // no mask so the caller still gets `count` placements somewhere inside the region.
+            if (totalWeight <= 0f && validMask != null)
+            {
+                cumulativeWeights = BuildWeightedCumulative(regionCells, grid, settings, null);
+                totalWeight = cumulativeWeights[cumulativeWeights.Length - 1];
+            }
             if (totalWeight <= 0f)
             {
-                // Degenerate (e.g. attraction set without any beach neighbours): fall back
-                // to uniform so the caller still gets `count` placements.
+                // Still degenerate (e.g. attraction set without any matching neighbours):
+                // fall back to fully uniform so the caller still gets `count` placements.
                 for (int i = 0; i < cumulativeWeights.Length; i++) cumulativeWeights[i] = i + 1;
                 totalWeight = cumulativeWeights.Length;
             }
@@ -162,31 +182,105 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
             return false;
         }
 
-        // Builds a cumulative-weight array so cell selection is a single binary search
-        // per sprite. Each entry is `base_weight * exp(-distance * falloff * attraction)`,
-        // collapsing to uniform when attraction is 0.
-        private static float[] BuildCumulativeWeights(float[] beachDistances, Settings settings)
+        // Single entry point for building the cumulative-weight array used by WeightedPick.
+        // Branches internally on Settings.BeachAttraction so callers don't have to mirror
+        // the branch + degenerate-fallback logic. validMask (when non-null) zeroes out the
+        // weight of any cell flagged invalid by the edge-buffer pass.
+        private static float[] BuildWeightedCumulative(
+            IReadOnlyList<(int col, int row)> regionCells,
+            GridManager grid,
+            Settings settings,
+            bool[] validMask)
         {
-            float[] cumulative = new float[beachDistances.Length];
-            float scale = Mathf.Max(0.001f, settings.BeachDistanceScale);
-            float falloff = BeachWeightFalloff * Mathf.Max(0f, settings.BeachAttraction);
+            int n = regionCells.Count;
+            float[] cumulative = new float[n];
             float running = 0f;
-            for (int i = 0; i < beachDistances.Length; i++)
+
+            if (settings.BeachAttraction > 0f)
             {
-                float d = beachDistances[i];
-                float weight;
-                if (float.IsPositiveInfinity(d) || falloff <= 0f)
+                float[] beachDistances = ComputeBeachDistances(regionCells, grid, settings.AttractionZoneId);
+                float scale = Mathf.Max(0.001f, settings.BeachDistanceScale);
+                float falloff = BeachWeightFalloff * settings.BeachAttraction;
+                for (int i = 0; i < n; i++)
                 {
-                    weight = 1f;
+                    if (validMask != null && !validMask[i]) { cumulative[i] = running; continue; }
+                    float d = beachDistances[i];
+                    float weight = float.IsPositiveInfinity(d) ? 1f : Mathf.Exp(-(d / scale) * falloff);
+                    running += weight;
+                    cumulative[i] = running;
                 }
-                else
+            }
+            else
+            {
+                for (int i = 0; i < n; i++)
                 {
-                    weight = Mathf.Exp(-(d / scale) * falloff);
+                    if (validMask != null && !validMask[i]) { cumulative[i] = running; continue; }
+                    running += 1f;
+                    cumulative[i] = running;
                 }
-                running += weight;
-                cumulative[i] = running;
             }
             return cumulative;
+        }
+
+        // Per-cell BFS distance (in cells) to the nearest cell on the region boundary —
+        // a cell with at least one 8-neighbour that is NOT in the supplied region. Cells
+        // that themselves sit on the boundary get distance 0. The returned mask is true
+        // for cells whose distance is at least `bufferCells`, i.e. cells safely inside the
+        // interior of the region.
+        private static bool[] ComputeInteriorMask(
+            IReadOnlyList<(int col, int row)> regionCells,
+            int bufferCells)
+        {
+            int n = regionCells.Count;
+            bool[] valid = new bool[n];
+            HashSet<(int, int)> cellSet = new HashSet<(int, int)>(n);
+            Dictionary<(int, int), int> cellIndex = new Dictionary<(int, int), int>(n);
+            for (int i = 0; i < n; i++)
+            {
+                cellSet.Add(regionCells[i]);
+                cellIndex[regionCells[i]] = i;
+            }
+
+            int[] dx = { 1, -1, 0, 0, 1, 1, -1, -1 };
+            int[] dy = { 0, 0, 1, -1, 1, -1, 1, -1 };
+
+            float[] dist = new float[n];
+            for (int i = 0; i < n; i++) dist[i] = float.PositiveInfinity;
+
+            Queue<int> frontier = new Queue<int>();
+            for (int i = 0; i < n; i++)
+            {
+                (int col, int row) = regionCells[i];
+                bool isBoundary = false;
+                for (int k = 0; k < 8; k++)
+                {
+                    if (!cellSet.Contains((col + dx[k], row + dy[k]))) { isBoundary = true; break; }
+                }
+                if (isBoundary)
+                {
+                    dist[i] = 0f;
+                    frontier.Enqueue(i);
+                }
+            }
+
+            while (frontier.Count > 0)
+            {
+                int idx = frontier.Dequeue();
+                (int col, int row) = regionCells[idx];
+                float nextDist = dist[idx] + 1f;
+                for (int k = 0; k < 8; k++)
+                {
+                    int nc = col + dx[k];
+                    int nr = row + dy[k];
+                    if (!cellIndex.TryGetValue((nc, nr), out int neighbourIdx)) continue;
+                    if (dist[neighbourIdx] <= nextDist) continue;
+                    dist[neighbourIdx] = nextDist;
+                    frontier.Enqueue(neighbourIdx);
+                }
+            }
+
+            for (int i = 0; i < n; i++) valid[i] = dist[i] >= bufferCells;
+            return valid;
         }
 
         private static int WeightedPick(float[] cumulative, float total, System.Random rng)
