@@ -145,6 +145,28 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             if (_activeText != null)
             {
                 _activeText.text = FormatQuantity(quantity);
+                _activeText.color = _inRangeTextColour;
+            }
+        }
+
+        // Tier variant for pollutant win conditions — displays "LOW" / "MED" / "HIGH"
+        // (coloured) instead of a numeric quantity, and blanks the range text since the
+        // tier already communicates pass/fail. Used by ObjectiveWidget when the target
+        // entity has Entity.DisplayAsPollutionTier == true.
+        public void SetActiveTier(string tier, Color tierColor)
+        {
+            if (_activeText != null)
+            {
+                _activeText.text = tier;
+                _activeText.color = tierColor;
+            }
+            if (_rangeText != null)
+            {
+                _rangeText.text = string.Empty;
+            }
+            if (_activeBackground != null)
+            {
+                _activeBackground.color = tierColor;
             }
         }
 

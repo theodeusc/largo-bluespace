@@ -61,6 +61,12 @@ namespace Glitchers.EcoKnow.Sandbox.UI
 
         private const string LogChannel = "[InventoryRow]";
 
+        // Step size for the +/- buttons in the sell modal. Fishing yields ~24 oysters per
+        // action (HarvestLimit), so stepping by a dozen lets two clicks (or one click + clamp)
+        // ladder up to a full catch without typing into the input field. Direct text input
+        // still bypasses this step for fine-grained sales.
+        private const int UnitStepSize = 12;
+
         public void Init(Item item, int amount, UnityAction onUnitsAdjusted)
         {
             itemDef = item;
@@ -126,7 +132,11 @@ namespace Glitchers.EcoKnow.Sandbox.UI
         {
             if (_inputField != null)
             {
-                _inputField.text = (SelectedUnits + 1).ToString();
+                // Step by a dozen, then clamp to the max in ValidateInput so the last
+                // partial step lands exactly at maxUnits instead of overshooting.
+                int target = SelectedUnits + UnitStepSize;
+                if (target > maxUnits) target = maxUnits;
+                _inputField.text = target.ToString();
             }
 
             OnInputModified();
@@ -136,7 +146,9 @@ namespace Glitchers.EcoKnow.Sandbox.UI
         {
             if (_inputField != null)
             {
-                _inputField.text = (SelectedUnits - 1).ToString();
+                int target = SelectedUnits - UnitStepSize;
+                if (target < 0) target = 0;
+                _inputField.text = target.ToString();
             }
 
             OnInputModified();

@@ -153,6 +153,13 @@ namespace Glitchers.EcoKnow.Sandbox.UI
         public void OnActionCompleted()
         {
             _modifyCellManager?.ResetLimits();
+
+            // Refresh currency / AP / inventory labels after every action so paths that don't
+            // go through OnSellSuccess or OnModifySuccess (e.g. WaterGameActionPanel's Fish /
+            // Pick Litter / Fundraise / Buy Treatment) still see updated counters immediately.
+            // Idempotent — paths that already refreshed inventories prior to OnActionCompleted
+            // just re-set the same label values.
+            RefreshInventories();
         }
         #endregion
 

@@ -35,7 +35,31 @@ namespace Glitchers.EcoKnow.Sandbox
 
         // Hide this entity's per-cell token while keeping it in the right-side EntityPanel.
         // Defaults to false to preserve existing scenarios; opt-in per-entity in the JSON.
-        bool HiddenFromCellToken = false
+        bool HiddenFromCellToken = false,
+        // Hide this entity from the right-side EntityPanel widget list. Used for entities
+        // the player shouldn't see at all (e.g. the invisible WaterTreatmentFacility marker).
+        // Pollutants are NOT hidden — they use DisplayAsPollutionTier below to show LOW/MED/HIGH
+        // in place of their raw count.
+        bool HiddenFromEntityPanel = false,
+        // When true, EntityWidget / ObjectiveWidget show "LOW", "MED", or "HIGH" (coloured
+        // green/amber/red) instead of the raw population count. Used for pollutants whose raw
+        // numbers (eColi ~10^14) would be incomprehensible to the player. Thresholds are
+        // scenario-defined per pollutant via LowPollutionMax / MedPollutionMax so each entity
+        // has its own scale-appropriate cutoffs.
+        bool DisplayAsPollutionTier = false,
+        // Population at or below which the entity reads as "LOW" (green / clean). Sized above
+        // the entity's expected baseline + minor accumulation so the game starts in LOW.
+        double LowPollutionMax = 0.0,
+        // Population at or below which the entity reads as "MED" (amber). Anything above
+        // reads as "HIGH" (red). Sized to mark mid-game peak before treatment.
+        double MedPollutionMax = 0.0,
+        // When true, this entity's EntityPanel widget AND any win condition targeting it
+        // display the *aggregate* worst-of-all-DisplayAsPollutionTier-entities tier instead
+        // of its own individual tier. Mark exactly one entity per scenario as the aggregator
+        // (typically the primary pollutant, e.g. eColi_sewage) and hide the rest with
+        // HiddenFromEntityPanel so the player sees a single unified "Pollution: LOW/MED/HIGH"
+        // readout instead of one widget per pollutant axis.
+        bool IsAggregatePollutionDisplay = false
         );
 
 
@@ -48,6 +72,63 @@ namespace Glitchers.EcoKnow.Sandbox
         [SerializeField] public List<int> Transitions;
 
         public EntityZoneInformation(int zoneID) { ZoneID = zoneID; Transitions = new List<int>(); }
+    }
+
+    // Shared pollution-tier classification used by both EntityWidget (right-side counts)
+    // and ObjectiveWidget (win-condition readouts). Lives here so the Entity record's
+    // scenario-defined thresholds (LowPollutionMax / MedPollutionMax) are the single source
+    // of truth — no widget hardcodes its own cutoffs.
+    public static class PollutionTier
+    {
+        public const string Low = "LOW";
+        public const string Med = "MED";
+        public const string High = "HIGH";
+
+        // Returns the tier label for `population` against `entity`'s scenario-defined cutoffs,
+        // or null when the entity isn't a tier-display entity. Operates in long because
+        // pollutant totals routinely exceed int.MaxValue.
+        public static string Classify(long population, Entity entity)
+        {
+            if (entity == null || !entity.DisplayAsPollutionTier) return null;
+            if (population <= (long)entity.LowPollutionMax) return Low;
+            if (population <= (long)entity.MedPollutionMax) return Med;
+            return High;
+        }
+
+        // Tier → colour. Bright primary tints picked to read clearly over both light and dark
+        // backgrounds (TMP text + UI panels) without needing an outline.
+        public static Color Colour(string tier)
+        {
+            switch (tier)
+            {
+                case Low:  return new Color(0.30f, 0.92f, 0.35f); // bright green
+                case Med:  return new Color(1.00f, 0.85f, 0.20f); // amber
+                case High: return new Color(1.00f, 0.30f, 0.20f); // red
+                default:   return Color.white;
+            }
+        }
+
+        // Worst-of aggregate across every entity flagged DisplayAsPollutionTier. Used by the
+        // single aggregator widget (Entity.IsAggregatePollutionDisplay) and by the aggregate
+        // win condition so both readouts always agree on the catchment's overall state.
+        // Returns LOW when there are no pollutant entities at all (defensive default).
+        public static string ComputeAggregateTier(EntityManager em)
+        {
+            if (em == null) return Low;
+            Entity[] list = em.GetEntityTypeList();
+            if (list == null) return Low;
+            int worst = 0; // 0 = LOW, 1 = MED, 2 = HIGH
+            for (int i = 0; i < list.Length; i++)
+            {
+                Entity e = list[i];
+                if (e == null || !e.DisplayAsPollutionTier) continue;
+                long pop = em.GetTotalPopulationOfEntityTypeLong(i);
+                string t = Classify(pop, e);
+                if (t == High) return High;
+                if (t == Med && worst < 1) worst = 1;
+            }
+            return worst == 1 ? Med : Low;
+        }
     }
 
     public delegate void EntityEvent(int column, int row, int id);
@@ -363,14 +444,22 @@ namespace Glitchers.EcoKnow.Sandbox
 
         public int GetTotalPopulationOfEntityType(int index)
         {
+            return ClampToInt(GetTotalPopulationOfEntityTypeLong(index));
+        }
+
+        // Full-precision variant. Use this from Win/LoseCondition evaluators and any other
+        // pollutant-aware consumer that compares against thresholds above int.MaxValue (~2e9):
+        // pollutant totals routinely sit in the 1e10–1e14 range and would otherwise saturate
+        // to int.MaxValue under the int-returning sibling, making every "≤ N" comparison fire.
+        public long GetTotalPopulationOfEntityTypeLong(int index)
+        {
+            if (_entityLookupTable == null) return 0L;
             if (index >= _entityLookupTable.GetLongLength(2) || index < 0)
             {
                 Debug.LogError($"{LogChannel} Failed to find total population of Entity with index [{index}], index is invalid!");
-                return 0;
+                return 0L;
             }
 
-            //Find total. Accumulate in long to avoid mid-sum overflow on pollutants;
-            //consumers receive a saturating int (large pollutant totals display as int.MaxValue).
             long totalPopulation = 0L;
             for (int column = 0; column < _entityLookupTable.GetLongLength(0); column++)
             {
@@ -384,7 +473,7 @@ namespace Glitchers.EcoKnow.Sandbox
                 }
             }
 
-            return ClampToInt(totalPopulation);
+            return totalPopulation;
         }
 
         public int GetHarvestLimits(int index)

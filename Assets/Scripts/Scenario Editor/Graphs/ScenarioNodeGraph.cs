@@ -26,6 +26,30 @@ public record EntityRate(int ZoneID, string EntityID, double Value);
 public enum EventKind { Nothing, Addition, Decline }
 public record RoundEvent(EventKind Kind, float Multiplier);
 
+// Lose-condition mirror of WinConditionRecord. A game ends in defeat if any LoseCondition's
+// evaluator reports IN_RANGE (target value sits inside [LowerLimit, UpperLimit]) at the end
+// of any round (or only on the final round when FinalRoundOnly is true). LowerLimit==0 +
+// UpperLimit>0 reads as "any value at or below UpperLimit"; LowerLimit>0 + UpperLimit==0
+// reads as "any value at or above LowerLimit" (the common water-quality-catastrophe pattern,
+// e.g. phosphate >= 50 -> defeat).
+public record LoseConditionRecord
+(
+    string Title,
+    string Description,
+    int TypeIndex,
+    int TargetIndex,
+    float LowerLimit,
+    float UpperLimit,
+    // When true the condition only evaluates on the scenario's final round. Used for
+    // end-of-game pollution checks that shouldn't punish the player for transient mid-game
+    // spikes — only the lingering state at game end matters.
+    bool FinalRoundOnly = false,
+    // Optional raw inventory key for item-based lookups that don't have a registered Item
+    // definition (e.g. internal counters like "sickness" that shouldn't appear in the
+    // inventory / sell UI). When non-null, used in place of looking up an Item def by index.
+    string TargetItemID = null
+);
+
 //All data needed to create a scenario
 public record Scenario
     (
@@ -53,7 +77,28 @@ public record Scenario
         EntityRate[] AnnualAdditions = null,
         EntityRate[] AnnualDeclines = null,
         // Ordered length-Rounds schedule. Indices past the end fall back to Nothing.
-        RoundEvent[] RoundSchedule = null
+        RoundEvent[] RoundSchedule = null,
+        // Earliest 0-indexed round at which "Buy Water Treatment Facility" becomes purchasable.
+        // The water gameplay loop in Largo gates the long-term cleanup investment behind several
+        // rounds of fishing/litter/fundraise accumulation; defaults preserve old scenarios.
+        int TreatmentMinRound = 5,
+        // One-shot currency cost paid to install the invisible WaterTreatmentFacility entity in
+        // every seawater compute cell. Lives on Scenario (not on the entity's IntroduceQuantities)
+        // because the buy flow short-circuits TryIntroduceEntityToCell and writes populations
+        // directly across all seawater regions in one transaction.
+        int TreatmentCost = 80,
+        // Currency awarded each time the Fundraise action button is pressed.
+        int FundraisingIncome = 8,
+        // Extra currency granted on round end when the player performed BOTH Pick Litter and
+        // Fundraise in the same turn (resolved once per turn before the next StartNewRound).
+        int LitterFundraiseComboBonus = 12,
+        // Number of "litter" units removed from a beach compute cell per Pick Litter action.
+        // Small integer because beach litter baseline + per-round addition both sit in single
+        // digits (see Largo.json ZoneBaselines / AnnualAdditions).
+        int PickLitterReductionPerAction = 1,
+        // Optional defeat-condition list mirroring WinConditions. Game ends in LOSE the first
+        // round a lose-condition evaluator reports IN_RANGE.
+        LoseConditionRecord[] LoseConditions = null
     );
 
 //Header info

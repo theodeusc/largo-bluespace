@@ -68,6 +68,14 @@ namespace Glitchers.EcoKnow.Sandbox
         private int _consecutiveSuccesses = 0;
         public int ConsecutiveSuccesses => _consecutiveSuccesses;
 
+        public bool FinalRoundOnly { get; private set; }
+
+        // Number of trailing rounds in which a FinalRoundOnly condition is actually evaluated.
+        // Two gives the player a penultimate-round "you're on track / running out of time"
+        // signal plus the actual decider on the final round. Earlier rounds skip entirely so
+        // mid-game pollution peaks can't lock in a permanent FAILED.
+        private const int FINAL_ROUNDS_TO_EVALUATE = 2;
+
         private bool _completed;
         public bool Completed => IsCurrentlyComplete();
 
@@ -85,12 +93,25 @@ namespace Glitchers.EcoKnow.Sandbox
 
             requiredRounds = record.RequiredRounds <= 0 ? 1 : record.RequiredRounds;
             _graceRemaining = 1;
+            FinalRoundOnly = record.FinalRoundOnly;
 
             _resultCache = new List<Result>();
         }
 
         public void OnNewRound()
         {
+            // FinalRoundOnly conditions only track during the final N rounds (penultimate +
+            // final by default). Earlier rounds skip entirely so the cache stays empty and a
+            // mid-game pollution peak can't push GRACE → FAILED and lock in defeat. Once the
+            // tracking window opens, the standard cache + grace logic applies and IsCurrentlyComplete
+            // looks at the latest result at EndGame to decide pass/fail.
+            if (FinalRoundOnly)
+            {
+                SandboxManager mgr = SandboxManager.Instance;
+                if (mgr == null) return;
+                if (mgr.CurrentRound < mgr.MaxRounds - FINAL_ROUNDS_TO_EVALUATE) return;
+            }
+
             if (GetLatestResult() == Result.FAILED)
             {
                 //No longer tracked
@@ -141,7 +162,17 @@ namespace Glitchers.EcoKnow.Sandbox
                 Entity entityType = entityManager.GetEntityType(targetIndex);
                 if (entityType != null)
                 {
-                    int totalPopulation = entityManager.GetTotalPopulationOfEntityType(targetIndex);
+                    // Aggregate pollution wins ignore the per-entity bounds and instead pass
+                    // when the catchment's worst-of-all-pollutants tier reads LOW. Keeps the
+                    // win condition aligned with the single aggregator widget the player sees.
+                    if (entityType.IsAggregatePollutionDisplay)
+                    {
+                        return PollutionTier.ComputeAggregateTier(entityManager) == PollutionTier.Low;
+                    }
+
+                    // Use the long-typed accessor — pollutant totals (eColi etc.) routinely sit
+                    // above int.MaxValue and the int sibling saturates, breaking "≤ N" checks.
+                    long totalPopulation = entityManager.GetTotalPopulationOfEntityTypeLong(targetIndex);
                     return IsWithinLimits(totalPopulation);
                 }
             }
@@ -155,30 +186,25 @@ namespace Glitchers.EcoKnow.Sandbox
             if (inventory != null)
             {
                 int quantity = inventory.GetAmountHeld(itemID);
-                return IsWithinLimits(quantity);
+                return IsWithinLimits(quantity); //int promotes to long for the comparison
             }
 
             return false;
         }
 
-        private bool IsWithinLimits(int amount)
+        // Single bracket helper used for both entity (long) and inventory (int promoted) checks.
+        // Comparisons run in double so float thresholds like 5.0e13 compare cleanly against
+        // long amounts (long → double is exact up to 2^53 ≈ 9e15).
+        private bool IsWithinLimits(long amount)
         {
-            if ((upperLimit > 0) && (upperLimit >= lowerLimit))
+            double lower = lowerLimit;
+            double upper = upperLimit;
+            if ((upper > 0.0) && (upper >= lower))
             {
-                if (amount >= lowerLimit && amount <= upperLimit)
-                {
-                    return true;
-                }
+                return amount >= lower && amount <= upper;
             }
-            else //If the scenario designer has not set an upper limit or if the upper limit is smaller than the lower limit, we should not consider it
-            {
-                if (amount >= lowerLimit)
-                {
-                    return true;
-                }
-            }
-
-            return false;
+            //If the scenario designer has not set an upper limit or if the upper limit is smaller than the lower limit, we should not consider it
+            return amount >= lower;
         }
 
         private void OnSuccessfulRound()

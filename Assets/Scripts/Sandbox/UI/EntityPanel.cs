@@ -51,6 +51,13 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             {
                 int entityIndex = i;
 
+                // Skip entities that opt out of the right-side widget list — e.g. pollutants
+                // (incomprehensible raw counts, surfaced as an aggregate HIGH/MED/LOW badge
+                // instead) and the invisible WaterTreatmentFacility marker. Distinct from
+                // HiddenFromCellToken so biota with hidden cell-tokens (oyster / seal /
+                // seagrass) still appear in the panel with their populations.
+                if (entities[i] != null && entities[i].HiddenFromEntityPanel) continue;
+
                 EntityWidget widget = Instantiate(_entityWidgetPrefab, _entityButtonContainer);
                 if (widget != null)
                 {

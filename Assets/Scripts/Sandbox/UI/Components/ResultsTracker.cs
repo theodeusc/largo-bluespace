@@ -135,6 +135,18 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             RefreshTracker();
         }
 
+        // Tier display path used by win conditions that target a pollutant entity
+        // (DisplayAsPollutionTier=true). Shows "LOW" / "MED" / "HIGH" coloured instead of
+        // a numeric range so the player isn't reading raw 10^14 values.
+        public void UpdateActiveWidgetTier(string tier, Color tierColor)
+        {
+            if (ActiveWidget != null)
+            {
+                ActiveWidget.SetActiveTier(tier, tierColor);
+            }
+            RefreshTracker();
+        }
+
         public void RefreshTracker()
         {
             StartCoroutine(RefreshLayout());

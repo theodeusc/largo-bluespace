@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Glitchers.EcoKnow.Sandbox.Grid;
 using Glitchers.EcoKnow.Sandbox.Grid.Regions;
@@ -8,7 +9,9 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
 {
     // Test harness that places four groups of pixel-art sprites on the map:
     //   • one seal per Beach region
-    //   • OystersPerSeaRegion oysters per Seawater region, biased toward shoreline
+    //   • oysters per Seawater region, count driven LIVE from the region's compute-cell oyster
+    //     population (normalised against ExpectedMaxOysterPerRegion, clamped to
+    //     MaxOysterSpritesPerRegion). Biased toward shoreline.
     //   • SeagrassPerSeaRegion seagrass clumps per Seawater region, biased toward shoreline
     //   • up to MaxDisplayedBottles bottles ("beach litter") across all Beach cells, count
     //     normalised from the summed `litter` populations of the Seawater + Freshwater +
@@ -53,11 +56,24 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
         private const float OysterWorldSize = 0.18f;
         private const float BottleWorldSize = 0.3f;
 
-        // Per-region counts for fixed-count groups. One seal per beach region;
-        // OystersPerSeaRegion / SeagrassPerSeaRegion per seawater region.
+        // Per-region counts for fixed-count groups. One seal per beach region; SeagrassPerSeaRegion
+        // per seawater region. Oysters are no longer fixed — see MaxOysterSpritesPerRegion below.
         private const int SealPerBeachRegion = 1;
-        private const int OystersPerSeaRegion = 100;
         private const int SeagrassPerSeaRegion = 100;
+
+        // Oyster visual count is driven LIVE from the seawater compute cell's oyster population.
+        // Per region: target_sprites = round( clamp01(live_pop / ExpectedMaxOysterPerRegion) *
+        // MaxOysterSpritesPerRegion ). ExpectedMaxOysterPerRegion is the population at which the
+        // sprite layer visually saturates — picked to match the gentle carrying capacity baked
+        // into Largo's oyster matrix coefficients (r=0.04, A[self]=-0.0001 → cap ≈ 400 in clean
+        // water). MaxOysterSpritesPerRegion caps how many sprite GameObjects we draw at peak so
+        // big oyster blooms don't tank framerate; sims past the cap keep all real population
+        // pressure in the math but the visual plateaus. Persistent-placement rule (per
+        // [[feedback_persistent_entity_placement]]) holds: we only APPEND positions when the
+        // count grows and LIFO-trim when it shrinks — never relocate existing oyster sprites.
+        private const string OysterEntityId = "oyster";
+        private const int MaxOysterSpritesPerRegion = 150;
+        private const float ExpectedMaxOysterPerRegion = 400f;
 
         // Beach-litter normalisation. The total `litter` population summed across the
         // compute cells of every Seawater + Freshwater + Beach region is divided by
@@ -67,7 +83,13 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
         // visually saturated beach — easy to retune by editing this constant.
         private const string LitterEntityId = "litter";
         private const int MaxDisplayedBottles = 50;
-        private const float ExpectedMaxLitterTotal = 20.0f;
+        // Saturation point for the bottle visual. Scaled up alongside Largo's litter zone
+        // baselines / addition rates (each multiplied by ~10) so that small fractional
+        // additions like 0.5 actually round to a non-zero long under RoundEventApplier's
+        // Math.Floor cast — otherwise litter additions silently disappeared every round.
+        // 200 keeps the visual saturating around the same point in a heavily-littered
+        // late-game state.
+        private const float ExpectedMaxLitterTotal = 200.0f;
 
         // Max ±tilt for bottle sprites in degrees. Stays well below 90° so bottles read
         // as lying flat on the sand, never standing upright.
@@ -242,10 +264,10 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
             // Fresh System.Random per round. Decoupled from gameplay's UnityEngine.Random
             // sequence. Only consumed when a group's target count grew this round —
             // existing positions never get re-rolled.
-            System.Random rng = new System.Random(Random.Range(int.MinValue, int.MaxValue));
+            System.Random rng = new System.Random(UnityEngine.Random.Range(int.MinValue, int.MaxValue));
 
             AdjustSeals(regions, grid, sealSprite, rng);
-            AdjustOysters(regions, grid, oysterSprite, rng);
+            AdjustOysters(regions, grid, entities, oysterSprite, rng);
             AdjustSeagrass(regions, grid, seagrassSprite, rng);
             AdjustBottles(regions, grid, entities, bottleSprite, rng);
         }
@@ -255,7 +277,7 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
             bool changed = AdjustPerRegionGroup(
                 regions, grid, rng,
                 targetType: RegionType.Beach,
-                targetCountPerRegion: SealPerBeachRegion,
+                targetCountForRegion: _ => SealPerBeachRegion,
                 settings: SealSettings,
                 rotationsByRegion: null,
                 positionsByRegion: _sealPositions,
@@ -275,12 +297,17 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
             });
         }
 
-        private void AdjustOysters(RegionComputeManager regions, GridManager grid, Sprite sprite, System.Random rng)
+        private void AdjustOysters(RegionComputeManager regions, GridManager grid, EntityManager entities, Sprite sprite, System.Random rng)
         {
+            // Live oyster index lookup once per round. -1 means the active scenario has no
+            // "oyster" entity declared (non-Largo scenarios), in which case every per-region
+            // target collapses to 0 and any existing oyster sprites trim away via LIFO.
+            int idxOyster = entities != null ? entities.GetEntityIndex(OysterEntityId) : -1;
+
             bool changed = AdjustPerRegionGroup(
                 regions, grid, rng,
                 targetType: RegionType.Seawater,
-                targetCountPerRegion: OystersPerSeaRegion,
+                targetCountForRegion: regionId => ComputeOysterTarget(regionId, regions, entities, idxOyster),
                 settings: OysterSettings,
                 rotationsByRegion: _oysterRotations,
                 positionsByRegion: _oysterPositions,
@@ -299,12 +326,27 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
             });
         }
 
+        // Per-seawater-region target sprite count derived from the region's compute-cell oyster
+        // population. Aliased regions (none for seawater in Largo today, but kept defensive)
+        // contribute zero so we never double-render via the alias target.
+        private static int ComputeOysterTarget(int regionId, RegionComputeManager regions, EntityManager entities, int idxOyster)
+        {
+            if (entities == null || idxOyster < 0) return 0;
+            if (regions.IsAliased(regionId)) return 0;
+            if (!regions.TryGetCenterCell(regionId, out var center)) return 0;
+            long pop = System.Math.Max(0L, entities.RawGetPopulation(center.col, center.row, idxOyster));
+            float normalised = ExpectedMaxOysterPerRegion > 0f
+                ? Mathf.Clamp01(pop / ExpectedMaxOysterPerRegion)
+                : 0f;
+            return Mathf.RoundToInt(normalised * MaxOysterSpritesPerRegion);
+        }
+
         private void AdjustSeagrass(RegionComputeManager regions, GridManager grid, Sprite sprite, System.Random rng)
         {
             bool changed = AdjustPerRegionGroup(
                 regions, grid, rng,
                 targetType: RegionType.Seawater,
-                targetCountPerRegion: SeagrassPerSeaRegion,
+                targetCountForRegion: _ => SeagrassPerSeaRegion,
                 settings: SeagrassSettings,
                 rotationsByRegion: null,
                 positionsByRegion: _seagrassPositions,
@@ -417,9 +459,14 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
         }
 
         // Per-region adjustment helper used by seal, oyster, and seagrass. For each region
-        // of `targetType`, brings that region's position list to exactly `targetCountPerRegion`
-        // entries by appending new samples or trimming the tail (never relocating existing
-        // entries). Also prunes any region ids that no longer exist (defensive).
+        // of `targetType`, brings that region's position list to exactly the count returned by
+        // `targetCountForRegion(regionId)` (clamped to >= 0) by appending new samples or
+        // trimming the tail (never relocating existing entries). Also prunes any region ids
+        // that no longer exist (defensive).
+        //
+        // Per-region targets let callers drive sprite count from live simulation state (e.g.
+        // oysters use the region's compute-cell population) while constant-count callers pass
+        // a trivial `_ => CONST` lambda.
         //
         // Returns true if any region's position set changed, so the caller knows whether
         // it needs to call RegisterGroup. The aggregated `allPositions` / `allRotations`
@@ -429,7 +476,7 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
             GridManager grid,
             System.Random rng,
             RegionType targetType,
-            int targetCountPerRegion,
+            Func<int, int> targetCountForRegion,
             PixelArtDistributionSampler.Settings settings,
             Dictionary<int, List<float>> rotationsByRegion,
             Dictionary<int, List<Vector3>> positionsByRegion,
@@ -462,7 +509,8 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
                     }
                 }
 
-                int delta = targetCountPerRegion - positions.Count;
+                int target = Mathf.Max(0, targetCountForRegion != null ? targetCountForRegion(regionId) : 0);
+                int delta = target - positions.Count;
                 if (delta > 0)
                 {
                     List<Vector3> newPos = PixelArtDistributionSampler.Sample(

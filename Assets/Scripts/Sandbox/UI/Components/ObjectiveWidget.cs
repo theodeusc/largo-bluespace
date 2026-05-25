@@ -127,14 +127,36 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                 return;
             }
 
+            // Aggregate pollution win condition: shows worst-of-all-pollutants tier and is
+            // satisfied when the aggregate reads LOW. Matches the aggregator EntityWidget so
+            // the two readouts can never disagree.
+            EntityManager em = SandboxManager.Instance.EntityManager;
+            if (_type == WinCondition.TargetType.Entity && em != null)
+            {
+                Entity entity = em.GetEntityType(TargetIndex);
+                if (entity != null && entity.IsAggregatePollutionDisplay)
+                {
+                    string aggregate = PollutionTier.ComputeAggregateTier(em);
+                    _resultsTracker?.UpdateActiveWidgetTier(aggregate, PollutionTier.Colour(aggregate));
+                    return;
+                }
+                if (entity != null && entity.DisplayAsPollutionTier)
+                {
+                    long pop = em.GetTotalPopulationOfEntityTypeLong(TargetIndex);
+                    string tier = PollutionTier.Classify(pop, entity);
+                    _resultsTracker?.UpdateActiveWidgetTier(tier, PollutionTier.Colour(tier));
+                    return;
+                }
+            }
+
             int quantity = 0;
             switch (_type)
             {
                 case (WinCondition.TargetType.Entity):
                     {
-                        if (SandboxManager.Instance.EntityManager != null)
+                        if (em != null)
                         {
-                            quantity = SandboxManager.Instance.EntityManager.GetTotalPopulationOfEntityType(TargetIndex);
+                            quantity = em.GetTotalPopulationOfEntityType(TargetIndex);
                         }
                         break;
                     }

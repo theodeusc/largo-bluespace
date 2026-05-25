@@ -66,14 +66,38 @@ namespace Glitchers.EcoKnow.Sandbox.UI
 
         public void UpdateQuantity()
         {
-            if (SandboxManager.Instance.EntityManager != null)
+            EntityManager em = SandboxManager.Instance.EntityManager;
+            if (em == null || _quantityText == null) return;
+
+            Entity entity = em.GetEntityType(_entityIndex);
+
+            // Aggregator: a single visible entity stands in for the whole catchment's
+            // pollution — its tier is the worst-of across every DisplayAsPollutionTier
+            // entity in the scenario. Other pollutants are hidden via HiddenFromEntityPanel
+            // so the player sees one unified "Pollution: LOW/MED/HIGH" widget.
+            if (entity != null && entity.IsAggregatePollutionDisplay)
             {
-                int population = SandboxManager.Instance.EntityManager.GetTotalPopulationOfEntityType(_entityIndex);
-                if (_quantityText != null)
-                {
-                    _quantityText.text = FormatQuantity(population);
-                }
+                string aggregate = PollutionTier.ComputeAggregateTier(em);
+                _quantityText.text = aggregate;
+                _quantityText.color = PollutionTier.Colour(aggregate);
+                return;
             }
+
+            // Pollutant entities show LOW/MED/HIGH (coloured) instead of a raw number — raw
+            // pollutant totals routinely exceed int.MaxValue (eColi ~10^14) and would clamp
+            // to a static-looking 2.1B reading even as the simulation changes underneath.
+            if (entity != null && entity.DisplayAsPollutionTier)
+            {
+                long pop = em.GetTotalPopulationOfEntityTypeLong(_entityIndex);
+                string tier = PollutionTier.Classify(pop, entity);
+                _quantityText.text = tier ?? "?";
+                _quantityText.color = PollutionTier.Colour(tier);
+                return;
+            }
+
+            int population = em.GetTotalPopulationOfEntityType(_entityIndex);
+            _quantityText.text = FormatQuantity(population);
+            _quantityText.color = Color.white;
         }
 
         private string FormatQuantity(int quantity)

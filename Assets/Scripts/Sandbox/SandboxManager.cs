@@ -85,6 +85,17 @@ namespace Glitchers.EcoKnow.Sandbox
         private List<WinCondition> _winConditions;
         public List<WinCondition> WinConditions => _winConditions;
 
+        // Optional defeat conditions. The first time IsMet() returns true at OnRoundEnded the
+        // game short-circuits to EndGame(Result.LOSE) and skips the remaining rounds.
+        private List<LoseCondition> _loseConditions = new List<LoseCondition>();
+        public List<LoseCondition> LoseConditions => _loseConditions;
+
+        // Per-turn action flags consumed by combo-bonus resolution at OnRoundEnded. Cleared
+        // at the top of every StartNewRound so the flags only represent the round just played.
+        public const string ActionFlagLitter = "litter";
+        public const string ActionFlagFundraise = "fundraise";
+        private readonly HashSet<string> _roundActionFlags = new HashSet<string>();
+
         // Elevation/shore-distance map exposing per-cell water classification and an upsampled
         // shore-distance texture. Built once per scenario load. Consumers (e.g. future water
         // shader binders) read it via the public ElevationMap property.
@@ -101,6 +112,7 @@ namespace Glitchers.EcoKnow.Sandbox
         // consumed by per-round helpers (RoundEventApplier, PollutantColorDriver) that need
         // the scenario's baseline / addition / decline / schedule tables.
         private Scenario _currentScenario;
+        public Scenario CurrentScenario => _currentScenario;
 
         // Fires once per scenario start after grid/entities/region-init are complete and just
         // before SandboxUI initialises. Late enough that RegionComputeManager (if used) is
@@ -158,6 +170,7 @@ namespace Glitchers.EcoKnow.Sandbox
                 MultiplayerManager.Instance.SetCurrentPlayer(-1);
 
                 InitWinConditions(scenario.WinConditions.ToList());
+                InitLoseConditions(scenario.LoseConditions);
 
                 //Init grid
                 _gridManager?.Init();
@@ -351,8 +364,22 @@ namespace Glitchers.EcoKnow.Sandbox
                 winCondition.OnNewRound();
             }
 
+            // Resolve any per-turn combo bonus BEFORE evaluating defeat — the bonus currency
+            // it grants should count toward win conditions that reference currency, and toward
+            // the player's record if defeat is about to trigger this round.
+            ResolveRoundCombos();
+
             //Now track data
             Data.DataManager.Instance.RecordEvent(Data.EventType.ROUND_END);
+
+            // Defeat triggers the moment any lose condition reads as met (e.g. oyster collapse).
+            // Skip the round-advance branch entirely so the player sees the game-end summary
+            // immediately rather than playing through an unrecoverable state.
+            if (AnyLoseConditionMet())
+            {
+                EndGame(Result.LOSE);
+                return;
+            }
 
             //Branch based on current round number
             bool finalRound = _currentRound >= _maxRounds - 1;
@@ -376,10 +403,43 @@ namespace Glitchers.EcoKnow.Sandbox
             }
         }
 
+        // Litter + Fundraise in the same turn awards a flat bonus on top of the per-action
+        // currency. Resolved once per round on OnRoundEnded, after which the flags are cleared
+        // by the next StartNewRound. Bonus amount lives on Scenario for per-scenario tuning.
+        private void ResolveRoundCombos()
+        {
+            if (_currentScenario == null || _playerInventory == null) return;
+            int bonus = _currentScenario.LitterFundraiseComboBonus;
+            if (bonus <= 0) return;
+            if (_roundActionFlags.Contains(ActionFlagLitter) && _roundActionFlags.Contains(ActionFlagFundraise))
+            {
+                _playerInventory.AddItem(PlayerInventory.CurrencyID, bonus);
+                Debug.Log($"{LogChannel} Litter+Fundraise combo bonus awarded: +{bonus} currency.");
+            }
+        }
+
+        private bool AnyLoseConditionMet()
+        {
+            if (_loseConditions == null) return false;
+            for (int i = 0; i < _loseConditions.Count; i++)
+            {
+                if (_loseConditions[i] != null && _loseConditions[i].IsMet())
+                {
+                    Debug.Log($"{LogChannel} Lose condition met: \"{_loseConditions[i].Title}\".");
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public void StartNewRound()
         {
             _currentRound += 1;
             MultiplayerManager.Instance.SetCurrentPlayer(0);//Reset
+
+            // Combo flags only describe the round the player is about to play. Wipe before
+            // distributing AP so the panel's gating sees a clean slate.
+            _roundActionFlags.Clear();
 
             // Apply the NEW round's addition / decline events here (rather than in
             // CalculateMaths) so the populations the player sees on screen are the
@@ -427,6 +487,16 @@ namespace Glitchers.EcoKnow.Sandbox
             Data.DataManager.Instance.RecordEvent(Data.EventType.GAME_END);
 
         }
+
+        // Forced-result variant used when a defeat trigger short-circuits the round loop.
+        // Skips AreWinConditionsMet so a half-met set of win conditions can't accidentally
+        // turn a defeat into a victory.
+        private void EndGame(Result forcedResult)
+        {
+            _sandboxUI?.OnNewRoundStarted(_currentRound, _maxRounds, 0);
+            _sandboxUI?.OnGameEnded(forcedResult);
+            Data.DataManager.Instance.RecordEvent(Data.EventType.GAME_END);
+        }
         #endregion
 
         #region WinConditions
@@ -460,6 +530,19 @@ namespace Glitchers.EcoKnow.Sandbox
                 condition.Init(record);
 
                 _winConditions.Add(condition);
+            }
+        }
+
+        private void InitLoseConditions(LoseConditionRecord[] loseConditions)
+        {
+            _loseConditions.Clear();
+            if (loseConditions == null) return;
+            for (int i = 0; i < loseConditions.Length; i++)
+            {
+                if (loseConditions[i] == null) continue;
+                LoseCondition lc = new LoseCondition();
+                lc.Init(loseConditions[i]);
+                _loseConditions.Add(lc);
             }
         }
         #endregion
@@ -546,6 +629,22 @@ namespace Glitchers.EcoKnow.Sandbox
             }
 
             return maxActions;
+        }
+
+        // Per-turn action flag accessors used by the water-game action panel to track which
+        // one-shot actions (e.g. Pick Litter, Fundraise) the player has already used this turn
+        // — gates the UI's enabled state and feeds the OnRoundEnded combo-bonus resolver.
+        // Returns true when the flag is newly added (false if it was already present).
+        public bool MarkRoundAction(string flag)
+        {
+            if (string.IsNullOrEmpty(flag)) return false;
+            return _roundActionFlags.Add(flag);
+        }
+
+        public bool HasRoundAction(string flag)
+        {
+            if (string.IsNullOrEmpty(flag)) return false;
+            return _roundActionFlags.Contains(flag);
         }
         #endregion
 

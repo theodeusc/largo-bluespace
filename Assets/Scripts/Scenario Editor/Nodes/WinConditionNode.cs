@@ -11,7 +11,12 @@ public record WinConditionRecord
     int TargetIndex,
     float LowerLimit,
     float UpperLimit,
-    int RequiredRounds
+    int RequiredRounds,
+    // When true, the win condition only matters on the scenario's final round and skips
+    // per-round tracking entirely. Useful for end-state checks (e.g. eColi load) where
+    // mid-game pollution peaks are expected and shouldn't permanently fail the win once
+    // the player has had a chance to build treatment / let declines wind back the level.
+    bool FinalRoundOnly = false
 );
 
 public class WinConditionNode : Node

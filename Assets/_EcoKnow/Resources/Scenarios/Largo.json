@@ -7,7 +7,7 @@
     "Description": "Hand-authored 80x40 catchment-style water test scenario based on the Largo geographical map: two 2-tile-wide freshwater rivers descend from the north, merge into a single river that first sweeps east and then runs south to a 2-tile-wide sand band wrapping the bay in a crescent. A separate 1-tile-wide tributary descends through the right-side crops region: it enters at (col 67, row 9), L-elbow staircases southwest down to (col 62, row 16), then runs straight south at col 62 through to the bay, passing through 2 estuary cells over the sand band and discharging via 2 river-mouth cells into the seawater. The 1-tile-wide channel uses L-elbow placement at every direction change so the dual-grid autotiler never selects a diagonal-only tile (no pair of freshwater-bearing cells is diagonally adjacent without an orthogonal connector). The grass area between the central voids and the new tributary (rows 22-27, cols 49-61) and the small grass patches near the new tributary (rows 20-21, cols 57-61) have been converted to crops to give the new tributary visual breathing room. The left golf field (cols 0-20, rows 17-21) and the right golf field (cols 75-78, rows 15-21) remain. Below the sand band sits the seawater bay (also crescent-shaped). Two 3x3 Overflow patches (zone 8) sit in the bay: the first at cols 48-50 / rows 31-33 — directly below the void/crops land boundary at col 47-48, with one buffer seawater cell (51, 33) separating it from the right-side sand at (52, 33); the second at cols 31-33 / rows 31-33 — sharing the first patch's top row, three cells west of the main river-mouth at col 36 and four rows south of the upper sand band at row 27 (chebyshev-4 from the nearest sand, giving a wider buffer that suits the parallel sand edge). Overflow is a logical marker, not a renderable terrain: cells render as ordinary seawater, and the brown tint is produced by ElevationMap baking a separate overflow distance field that EK_Water samples on the sea branch. Freshwater renders over Soil; seawater renders over Sand (per TerrainPriority.ZoneTerrainStacks). The Freshwater terrain reuses a duplicate of the seawater tileset until a dedicated freshwater tileset exists. SOURCE OF TRUTH: Map_Largo.csv (zone definitions + tile layout) and the largo_*.csv matrix files (one per zone). This JSON is a snapshot of those sources; regenerate it if the source CSVs change.",
     "CoverImageBase64": "",
     "Rounds": 10,
-    "ActionsPerRound": 1,
+    "ActionsPerRound": 2,
     "StartCurrency": 0,
     "Seed": 0,
     "UseRegionWideCompute": true,
@@ -28,7 +28,11 @@
         "IntroduceLimit": 0,
         "HarvestQuantities": null,
         "IntroduceQuantities": null,
-        "ZoneInformation": []
+        "ZoneInformation": [],
+        "DisplayAsPollutionTier": true,
+        "LowPollutionMax": 1.0e14,
+        "MedPollutionMax": 3.0e14,
+        "IsAggregatePollutionDisplay": true
       },
       {
         "ID": "eColi_agri",
@@ -46,7 +50,8 @@
         "IntroduceLimit": 0,
         "HarvestQuantities": null,
         "IntroduceQuantities": null,
-        "ZoneInformation": []
+        "ZoneInformation": [],
+        "HiddenFromEntityPanel": true
       },
       {
         "ID": "phosphate",
@@ -64,7 +69,11 @@
         "IntroduceLimit": 0,
         "HarvestQuantities": null,
         "IntroduceQuantities": null,
-        "ZoneInformation": []
+        "ZoneInformation": [],
+        "DisplayAsPollutionTier": true,
+        "LowPollutionMax": 60,
+        "MedPollutionMax": 90,
+        "HiddenFromEntityPanel": true
       },
       {
         "ID": "sediment",
@@ -82,7 +91,8 @@
         "IntroduceLimit": 0,
         "HarvestQuantities": null,
         "IntroduceQuantities": null,
-        "ZoneInformation": []
+        "ZoneInformation": [],
+        "HiddenFromEntityPanel": true
       },
       {
         "ID": "litter",
@@ -125,17 +135,19 @@
         "ID": "oyster",
         "Icon": "Icons/oyster_high_contrast",
         "Colour": "F5F5DCFF",
-        "GrowthRate": 0.0,
+        "GrowthRate": 0.08,
         "MovementRate": 0.0,
         "VulnerableThreshold": 0.0,
         "AbundanceThreshold": 0.0,
         "AutoPlace": false,
         "StartPopulation": 0,
-        "CanHarvest": false,
+        "CanHarvest": true,
         "CanIntroduce": false,
-        "HarvestLimit": 0,
+        "HarvestLimit": 24,
         "IntroduceLimit": 0,
-        "HarvestQuantities": null,
+        "HarvestQuantities": [
+          { "ID": "oyster", "Value": 1 }
+        ],
         "IntroduceQuantities": null,
         "ZoneInformation": [],
         "HiddenFromCellToken": true
@@ -144,6 +156,26 @@
         "ID": "seagrass",
         "Icon": "PixelArt/Entities/seagrass",
         "Colour": "228B22FF",
+        "GrowthRate": 0.03,
+        "MovementRate": 0.0,
+        "VulnerableThreshold": 0.0,
+        "AbundanceThreshold": 0.0,
+        "AutoPlace": false,
+        "StartPopulation": 0,
+        "CanHarvest": false,
+        "CanIntroduce": false,
+        "HarvestLimit": 0,
+        "IntroduceLimit": 0,
+        "HarvestQuantities": null,
+        "IntroduceQuantities": null,
+        "ZoneInformation": [],
+        "HiddenFromCellToken": true,
+        "HiddenFromEntityPanel": true
+      },
+      {
+        "ID": "WaterTreatmentFacility",
+        "Icon": "Icons/radioactive_high_contrast",
+        "Colour": "4FC3F7FF",
         "GrowthRate": 0.0,
         "MovementRate": 0.0,
         "VulnerableThreshold": 0.0,
@@ -157,19 +189,32 @@
         "HarvestQuantities": null,
         "IntroduceQuantities": null,
         "ZoneInformation": [],
-        "HiddenFromCellToken": true
+        "HiddenFromCellToken": true,
+        "HiddenFromEntityPanel": true
       }
     ],
-    "Items": null,
+    "Items": [
+      { "ID": "oyster", "Icon": "Icons/oyster_high_contrast", "Value": 1, "CanSell": true }
+    ],
     "WinConditions": [
       {
-        "Title": "Inspect Water Features",
-        "Description": "Visual test scenario: confirm the two freshwater rivers merge cleanly, the merged river bends right then runs south to the sand, and the crescent-shaped sand band & bay tile correctly at every boundary.",
+        "Title": "Water Pollution Under Control",
+        "Description": "Bring catchment-wide water pollution down to LOW by the final round. Aggregates every pollutant axis — eColi, phosphate, sediment — so any one running HIGH fails the check. Treatment is the only structural lever once late-round additions ramp up.",
         "TypeIndex": 0,
         "TargetIndex": 0,
-        "LowerLimit": 999999.0,
+        "LowerLimit": 0.0,
         "UpperLimit": 0.0,
-        "RequiredRounds": 99
+        "RequiredRounds": 1,
+        "FinalRoundOnly": true
+      },
+      {
+        "Title": "Don't Overfish",
+        "Description": "Leave at least 230 oysters in the bay by the final round. Light-to-moderate fishing (up to ~5 cycles) is sustainable — greedy fishing crashes the bay.",
+        "TypeIndex": 0,
+        "TargetIndex": 6,
+        "LowerLimit": 230.0,
+        "UpperLimit": 0.0,
+        "RequiredRounds": 1
       }
     ],
     "Matrix": {
@@ -181,17 +226,19 @@
         "litter",
         "seal",
         "oyster",
-        "seagrass"
+        "seagrass",
+        "WaterTreatmentFacility"
       ],
       "entityMatrix": [
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 0.0, -0.001, 0.086, 0.0, 0.0],
-        [0.0, 0.0, 0.0, 0.0, -0.001, 0.0, 0.1, 0.0],
-        [0.0, 0.0, 0.0, 0.0, -0.001, 0.0, 0.0, 0.1]
+        [0.0,    0.0,    0.0,     0.0,    0.0,    0.0,    0.0,    -1.0e-16, 0.0],
+        [0.0,    0.0,    0.0,     0.0,    0.0,    0.0,    0.0,     0.0,    0.0],
+        [0.0,    0.0,    0.0,     0.0,    0.0,    0.0,    0.0,    -0.0001,  0.0],
+        [0.0,    0.0,    0.0,     0.0,    0.0,    0.0,    0.0,    -3.0e-7,  0.0],
+        [0.0,    0.0,    0.0,     0.0,    0.0,    0.0,    0.0,     0.0,    0.0],
+        [0.0,    0.0,    0.0,     0.0,   -0.001,  0.086,  0.0,     0.0,    0.0],
+        [0.0,    0.0,    0.0,     0.0,   -0.001,  0.0,   -0.0002,  0.0,    0.0],
+        [0.0,    0.0,    0.0,     0.0,   -0.001,  0.0,    0.0,    -0.0001,  0.0],
+        [-0.95, -0.90,  -0.90,   -0.80,  -0.40,   0.0,    0.05,    0.0,    0.0]
       ],
       "zoneIndex": 0
     },
@@ -13375,69 +13422,85 @@
       { "ZoneID": 4, "EntityID": "eColi_agri", "Value": 6.0e9 },
       { "ZoneID": 4, "EntityID": "phosphate", "Value": 5.0 },
       { "ZoneID": 4, "EntityID": "sediment", "Value": 1500.0 },
-      { "ZoneID": 4, "EntityID": "litter", "Value": 2.5 },
+      { "ZoneID": 4, "EntityID": "litter", "Value": 25.0 },
       { "ZoneID": 0, "EntityID": "eColi_sewage", "Value": 5.0e8 },
       { "ZoneID": 0, "EntityID": "eColi_agri", "Value": 4.0e8 },
       { "ZoneID": 0, "EntityID": "phosphate", "Value": 10.0 },
       { "ZoneID": 0, "EntityID": "sediment", "Value": 3000.0 },
-      { "ZoneID": 0, "EntityID": "litter", "Value": 1.0 },
-      { "ZoneID": 0, "EntityID": "oyster", "Value": 200.0 },
+      { "ZoneID": 0, "EntityID": "litter", "Value": 10.0 },
+      { "ZoneID": 0, "EntityID": "oyster", "Value": 300.0 },
       { "ZoneID": 0, "EntityID": "seagrass", "Value": 200.0 },
       { "ZoneID": 8, "EntityID": "eColi_sewage", "Value": 5.0e8 },
       { "ZoneID": 8, "EntityID": "eColi_agri", "Value": 4.0e8 },
       { "ZoneID": 8, "EntityID": "phosphate", "Value": 10.0 },
       { "ZoneID": 8, "EntityID": "sediment", "Value": 3000.0 },
-      { "ZoneID": 8, "EntityID": "litter", "Value": 1.0 },
-      { "ZoneID": 1, "EntityID": "litter", "Value": 0.5 },
+      { "ZoneID": 8, "EntityID": "litter", "Value": 10.0 },
+      { "ZoneID": 1, "EntityID": "litter", "Value": 5.0 },
       { "ZoneID": 1, "EntityID": "seal", "Value": 1.0 }
     ],
     "AnnualAdditions": [
-      { "ZoneID": 4, "EntityID": "eColi_sewage", "Value": 3.0e14 },
-      { "ZoneID": 4, "EntityID": "eColi_agri", "Value": 1.8e9 },
-      { "ZoneID": 4, "EntityID": "phosphate", "Value": 0.6 },
-      { "ZoneID": 4, "EntityID": "sediment", "Value": 750.0 },
-      { "ZoneID": 4, "EntityID": "litter", "Value": 0.4 },
-      { "ZoneID": 0, "EntityID": "eColi_sewage", "Value": 3.0e13 },
-      { "ZoneID": 0, "EntityID": "eColi_agri", "Value": 8.0e7 },
-      { "ZoneID": 0, "EntityID": "phosphate", "Value": 0.21 },
-      { "ZoneID": 0, "EntityID": "sediment", "Value": 240.0 },
-      { "ZoneID": 0, "EntityID": "litter", "Value": 0.05 },
-      { "ZoneID": 8, "EntityID": "eColi_sewage", "Value": 3.0e13 },
-      { "ZoneID": 8, "EntityID": "eColi_agri", "Value": 8.0e7 },
-      { "ZoneID": 8, "EntityID": "phosphate", "Value": 0.21 },
-      { "ZoneID": 8, "EntityID": "sediment", "Value": 240.0 },
-      { "ZoneID": 8, "EntityID": "litter", "Value": 0.05 },
-      { "ZoneID": 1, "EntityID": "litter", "Value": 0.05 }
+      { "ZoneID": 4, "EntityID": "eColi_sewage", "Value": 1.0e12 },
+      { "ZoneID": 4, "EntityID": "eColi_agri", "Value": 1.0e8 },
+      { "ZoneID": 4, "EntityID": "phosphate", "Value": 0.4 },
+      { "ZoneID": 4, "EntityID": "sediment", "Value": 100.0 },
+      { "ZoneID": 4, "EntityID": "litter", "Value": 4.0 },
+      { "ZoneID": 0, "EntityID": "eColi_sewage", "Value": 5.0e13 },
+      { "ZoneID": 0, "EntityID": "eColi_agri", "Value": 2.0e8 },
+      { "ZoneID": 0, "EntityID": "phosphate", "Value": 1.5 },
+      { "ZoneID": 0, "EntityID": "sediment", "Value": 400.0 },
+      { "ZoneID": 0, "EntityID": "litter", "Value": 0.5 },
+      { "ZoneID": 8, "EntityID": "eColi_sewage", "Value": 5.0e13 },
+      { "ZoneID": 8, "EntityID": "eColi_agri", "Value": 2.0e8 },
+      { "ZoneID": 8, "EntityID": "phosphate", "Value": 1.5 },
+      { "ZoneID": 8, "EntityID": "sediment", "Value": 400.0 },
+      { "ZoneID": 8, "EntityID": "litter", "Value": 0.5 },
+      { "ZoneID": 1, "EntityID": "litter", "Value": 0.5 }
     ],
     "AnnualDeclines": [
-      { "ZoneID": 4, "EntityID": "eColi_sewage", "Value": 2.1e14 },
-      { "ZoneID": 4, "EntityID": "eColi_agri", "Value": 3.0e9 },
-      { "ZoneID": 4, "EntityID": "phosphate", "Value": 0.4 },
-      { "ZoneID": 4, "EntityID": "sediment", "Value": 600.0 },
-      { "ZoneID": 4, "EntityID": "litter", "Value": 0.08 },
-      { "ZoneID": 0, "EntityID": "eColi_sewage", "Value": 2.4e13 },
-      { "ZoneID": 0, "EntityID": "eColi_agri", "Value": 2.8e8 },
-      { "ZoneID": 0, "EntityID": "phosphate", "Value": 0.15 },
-      { "ZoneID": 0, "EntityID": "sediment", "Value": 300.0 },
-      { "ZoneID": 0, "EntityID": "litter", "Value": 0.006 },
-      { "ZoneID": 8, "EntityID": "eColi_sewage", "Value": 2.4e13 },
-      { "ZoneID": 8, "EntityID": "eColi_agri", "Value": 2.8e8 },
-      { "ZoneID": 8, "EntityID": "phosphate", "Value": 0.15 },
-      { "ZoneID": 8, "EntityID": "sediment", "Value": 300.0 },
-      { "ZoneID": 8, "EntityID": "litter", "Value": 0.006 },
-      { "ZoneID": 1, "EntityID": "litter", "Value": 0.005 }
+      { "ZoneID": 4, "EntityID": "eColi_sewage", "Value": 8.0e11 },
+      { "ZoneID": 4, "EntityID": "eColi_agri", "Value": 8.0e7 },
+      { "ZoneID": 4, "EntityID": "phosphate", "Value": 0.3 },
+      { "ZoneID": 4, "EntityID": "sediment", "Value": 80.0 },
+      { "ZoneID": 4, "EntityID": "litter", "Value": 0.8 },
+      { "ZoneID": 0, "EntityID": "eColi_sewage", "Value": 4.0e13 },
+      { "ZoneID": 0, "EntityID": "eColi_agri", "Value": 1.6e8 },
+      { "ZoneID": 0, "EntityID": "phosphate", "Value": 1.2 },
+      { "ZoneID": 0, "EntityID": "sediment", "Value": 320.0 },
+      { "ZoneID": 0, "EntityID": "litter", "Value": 0.06 },
+      { "ZoneID": 8, "EntityID": "eColi_sewage", "Value": 4.0e13 },
+      { "ZoneID": 8, "EntityID": "eColi_agri", "Value": 1.6e8 },
+      { "ZoneID": 8, "EntityID": "phosphate", "Value": 1.2 },
+      { "ZoneID": 8, "EntityID": "sediment", "Value": 320.0 },
+      { "ZoneID": 8, "EntityID": "litter", "Value": 0.06 },
+      { "ZoneID": 1, "EntityID": "litter", "Value": 0.05 }
     ],
     "RoundSchedule": [
       { "Kind": 0, "Multiplier": 0.0 },
+      { "Kind": 1, "Multiplier": 0.3 },
+      { "Kind": 1, "Multiplier": 0.5 },
+      { "Kind": 1, "Multiplier": 0.7 },
       { "Kind": 1, "Multiplier": 1.0 },
-      { "Kind": 2, "Multiplier": 1.0 },
-      { "Kind": 0, "Multiplier": 0.0 },
       { "Kind": 1, "Multiplier": 1.0 },
+      { "Kind": 2, "Multiplier": 0.5 },
+      { "Kind": 2, "Multiplier": 0.8 },
       { "Kind": 2, "Multiplier": 1.0 },
-      { "Kind": 0, "Multiplier": 0.0 },
-      { "Kind": 1, "Multiplier": 1.0 },
-      { "Kind": 2, "Multiplier": 1.0 },
-      { "Kind": 0, "Multiplier": 0.0 }
+      { "Kind": 2, "Multiplier": 1.0 }
+    ],
+    "TreatmentMinRound": 5,
+    "TreatmentCost": 200,
+    "FundraisingIncome": 16,
+    "LitterFundraiseComboBonus": 20,
+    "PickLitterReductionPerAction": 15,
+    "LoseConditions": [
+      {
+        "Title": "Outbreak of Illness",
+        "Description": "Three sick harvests is too many. Fishing in contaminated seawater spreads illness fast — wait for treatment to clear the bay before harvesting again.",
+        "TypeIndex": 1,
+        "TargetIndex": 0,
+        "LowerLimit": 3.0,
+        "UpperLimit": 0.0,
+        "TargetItemID": "sickness"
+      }
     ]
   }
 }
