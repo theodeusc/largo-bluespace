@@ -11,7 +11,10 @@ namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
         // Entity IDs the scenario uses for water-borne pollutants. These match the IDs
         // emitted in Largo.json. If a scenario uses different IDs, register movement
         // manually; this helper is opt-in (called explicitly by SandboxManager).
-        private static readonly string[] WaterPollutantIds = new[]
+        // Exposed for RegionMovement.RunDownstreamFlush — both the policy/adjacency-gated
+        // flow and the downstream-flush pass operate on the same pollutant set, so the
+        // canonical list lives here.
+        public static readonly string[] WaterPollutantIds = new[]
         {
             "eColi_sewage",
             "eColi_agri",

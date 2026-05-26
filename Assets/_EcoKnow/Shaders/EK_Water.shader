@@ -332,7 +332,24 @@ Shader "EcoKnow/Water"
                 float faderMask = saturate(1.0 - faderNoise * _CausticFaderMultiplier);
 
                 fixed4 causticSample = tex2D(_CausticTex, causticUV);
-                fixed4 tintedCaustic = causticSample * _CausticColor;
+                // Caustic colour fades from the asset-defined cyan toward a warm tan
+                // (light brown / dark orange) over sewage-overflow patches. The brown
+                // overflow tint pulls the base water colour warm, and the cyan caustic
+                // on top reads as a dirty green-cyan sheen; pulling the caustic toward
+                // the warm tan keeps the sparkle while staying tonally cohesive with
+                // the muddy water. Re-samples _OverflowMap because the earlier overflow
+                // lookup is scoped inside the sea-only block above, and clean seawater
+                // / freshwater (overflow mask = 0) keep their existing caustics. The
+                // chosen RGB is a starting point — tweak alongside _OverflowTintColor
+                // if the muddy-water palette is retuned.
+                fixed4 causticTint = _CausticColor;
+                if (_WaterType <= 0.5)
+                {
+                    float causticOverflow = tex2D(_OverflowMap, altUV).r;
+                    causticTint.rgb = lerp(causticTint.rgb, float3(0.85, 0.55, 0.25),
+                                           causticOverflow * _OverflowTintStrength);
+                }
+                fixed4 tintedCaustic = causticSample * causticTint;
                 waterColor.rgb = lerp(waterColor.rgb, tintedCaustic.rgb, tintedCaustic.a * faderMask);
 
                 fixed4 highlightSample = tex2D(_CausticHighlightTex, causticUV);

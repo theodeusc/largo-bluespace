@@ -16,6 +16,14 @@ namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
         // proportional split — looping 1e14 times would freeze the game.
         private const long PerMoverLoopThreshold = 1_000_000L;
 
+        // Per-round fraction of freshwater pollutant population drained directly to the
+        // seawater region(s) by RunDownstreamFlush. Tuned high so freshwater shows a
+        // visible dirty→clean cycle: each round the player sees the latest addition tint
+        // freshwater brown, then the next round it has effectively drained downstream.
+        // Lives next to the function that uses it rather than the policy file because
+        // the value is a gameplay-tuning constant, not a "what is allowed" rule.
+        private const float FreshwaterDownstreamFlushRate = 0.95f;
+
         public static void Run(EntityManager entityManager, RegionComputeManager regions)
         {
             if (entityManager == null || regions == null || !regions.IsActive) return;
@@ -99,6 +107,86 @@ namespace Glitchers.EcoKnow.Sandbox.Grid.Regions
                     long pop = entityManager.RawGetPopulation(center.col, center.row, e);
                     if (pop < 0L) continue;
                     entityManager.RawSetPopulation(center.col, center.row, e, Math.Max(0L, pop + delta));
+                }
+            }
+        }
+
+        // Explicit downstream flush for water-borne pollutants accumulating in
+        // freshwater regions. Bypasses the policy/adjacency graph walked by Run()
+        // because real-world catchments (and Largo specifically) place estuary
+        // regions between freshwater and seawater — so freshwater is never
+        // *directly* adjacent to a seawater region, and Run()'s policy-gated
+        // lookup finds zero valid targets. Without this pass, pollutants
+        // accumulate in freshwater indefinitely and the visual tint just
+        // monotonically browns. With it, freshwater compute cells drain
+        // FreshwaterDownstreamFlushRate of their pollutant population to the
+        // seawater compute cell(s) each round, giving the gameplay loop a
+        // visible dirty→clean cycle.
+        //
+        // Litter is excluded by respecting the entity's own MovementRate: any
+        // pollutant the scenario authored as immobile (MovementRate == 0) stays
+        // immobile here too. That keeps the "Pick Litter" player action
+        // meaningful — the simulation never silently flushes litter for the
+        // player.
+        //
+        // Intended call site: StandardCalculator.CalculateMovement, immediately
+        // after RegionMovement.Run, so the flush runs once per round in the
+        // same simulation step as ordinary region-to-region movement.
+        public static void RunDownstreamFlush(EntityManager entityManager, RegionComputeManager regions)
+        {
+            if (entityManager == null || regions == null || !regions.IsActive) return;
+
+            // Collect non-aliased seawater compute cells once. Multiple regions are
+            // supported (distribute evenly); on Largo there is a single bay so the
+            // count is 1.
+            List<(int col, int row)> seawaterTargets = new List<(int col, int row)>();
+            foreach (int regionId in regions.AllRegionIds)
+            {
+                if (regions.IsAliased(regionId)) continue;
+                if (regions.GetRegionType(regionId) != RegionType.Seawater) continue;
+                if (regions.TryGetCenterCell(regionId, out var center))
+                {
+                    seawaterTargets.Add(center);
+                }
+            }
+            if (seawaterTargets.Count == 0) return;
+
+            string[] pollutantIds = RegionMovementPolicy.WaterPollutantIds;
+            for (int p = 0; p < pollutantIds.Length; p++)
+            {
+                int e = entityManager.GetEntityIndex(pollutantIds[p]);
+                if (e < 0) continue;
+                Entity entity = entityManager.GetEntityType(e);
+                // Honour the scenario's per-entity mobility flag: litter (MovementRate = 0)
+                // is a player-action entity, not an environmental flow, so the flush leaves
+                // it alone. Any future immobile-pollutant entries get the same treatment.
+                if (entity != null && entity.MovementRate <= 0f) continue;
+
+                foreach (int regionId in regions.AllRegionIds)
+                {
+                    if (regions.IsAliased(regionId)) continue;
+                    if (regions.GetRegionType(regionId) != RegionType.Freshwater) continue;
+                    if (!regions.TryGetCenterCell(regionId, out var src)) continue;
+
+                    long pop = entityManager.RawGetPopulation(src.col, src.row, e);
+                    if (pop <= 0L) continue;
+
+                    long movers = (long)Math.Round((double)pop * FreshwaterDownstreamFlushRate);
+                    if (movers <= 0L) continue;
+                    if (movers > pop) movers = pop;
+
+                    entityManager.RawSetPopulation(src.col, src.row, e, pop - movers);
+
+                    long per = movers / seawaterTargets.Count;
+                    long remainder = movers - per * seawaterTargets.Count;
+                    for (int i = 0; i < seawaterTargets.Count; i++)
+                    {
+                        long add = per + (i == 0 ? remainder : 0L);
+                        if (add <= 0L) continue;
+                        var t = seawaterTargets[i];
+                        long tPop = entityManager.RawGetPopulation(t.col, t.row, e);
+                        entityManager.RawSetPopulation(t.col, t.row, e, tPop + add);
+                    }
                 }
             }
         }

@@ -41,6 +41,12 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
         [SerializeField] private FlowLayoutGroup _cellTokenContainer;
         [SerializeField] private float spacingCompact;
         [SerializeField] private float spacingWide;
+        // Master toggle for the in-world token canvas. Off by design — population counts and
+        // state-border "warnings" rendered per cell were noisy and made the map hard to read.
+        // The underlying entity/population data is unaffected; only the world-space display
+        // is suppressed. Flip to true on the prefab if a future scenario wants the numbers
+        // back without redoing the wiring.
+        [SerializeField] private bool _showCellTokens = false;
 
         private int _row;
         private int _column;
@@ -71,6 +77,15 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
                 {
                     zoneColorRenderer.color = zoneColor.Value;
                 }
+            }
+
+            // When the per-cell token display is disabled, deactivate the entire token
+            // container so the world-space canvas (numbers, icons, state-border warnings)
+            // never renders. Token-creation and per-frame update paths are also gated so
+            // we don't waste work building hidden hierarchies.
+            if (!_showCellTokens && _cellTokenContainer != null)
+            {
+                _cellTokenContainer.gameObject.SetActive(false);
             }
 
             ShowHighlight(false);
@@ -168,6 +183,9 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
         public void UpdateEntityCount()
         {
+            // Per-cell tokens globally disabled — skip the per-frame refresh entirely.
+            if (!_showCellTokens) return;
+
             // Region-wide compute: visual cells render no tokens. Only the region's compute cell shows entities.
             if (IsVisualInRegionMode()) return;
 
@@ -218,6 +236,11 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
         public void SetupEntityTokens()
         {
             //Populate with a token for each valid type, regardless of whether they are spawned in the cell yet
+
+            // Per-cell tokens globally disabled — skip instantiation entirely. Saves the
+            // per-cell GameObject creation cost on scenario load and guarantees no token
+            // visuals reach the world-space canvas regardless of region-compute mode.
+            if (!_showCellTokens) return;
 
             if ((_cellTokenPrefab == null) || (_cellTokenContainer == null))
             {

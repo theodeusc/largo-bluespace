@@ -136,6 +136,15 @@ namespace Glitchers.EcoKnow.Sandbox
             if (entityManager.IsRegionMode)
             {
                 RegionMovement.Run(entityManager, entityManager.RegionComputeManager);
+                // Run() walks the region adjacency graph and is gated by RegionMovementPolicy.
+                // On Largo (and any catchment where estuary regions sit between freshwater and
+                // seawater) that graph has no direct Freshwater→Seawater edge, so freshwater
+                // pollutants can't drain via Run(). The explicit downstream-flush pass below
+                // bypasses the adjacency requirement: it reads each freshwater compute cell
+                // and drains a fixed fraction of its mobile pollutants straight to seawater
+                // compute cells. Without this, freshwater monotonically browns over R1-R5
+                // with no clean phase.
+                RegionMovement.RunDownstreamFlush(entityManager, entityManager.RegionComputeManager);
                 return;
             }
 

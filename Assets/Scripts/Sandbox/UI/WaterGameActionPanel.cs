@@ -1,4 +1,5 @@
 using Glitchers.EcoKnow.Sandbox.Grid.Regions;
+using Glitchers.EcoKnow.Sandbox.Terrain;
 using UnityEngine;
 
 namespace Glitchers.EcoKnow.Sandbox.UI
@@ -21,9 +22,11 @@ namespace Glitchers.EcoKnow.Sandbox.UI
     //                    (combo flag).
     //   • Buy WTF      — once per game, gated to CurrentRound >= Scenario.TreatmentMinRound
     //                    and currency >= Scenario.TreatmentCost. Writes WaterTreatmentFacility
-    //                    population = 1 to every seawater compute cell so the matrix's
-    //                    treatment-row coefficients drive pollutant decay each subsequent
-    //                    round.
+    //                    population = 1 to every water-region compute cell (seawater,
+    //                    freshwater, overflow) so the shared matrix's treatment-row
+    //                    coefficients drive pollutant decay in all bodies of water each
+    //                    subsequent round. Also clears the overflow brown tint so the
+    //                    sewage-overflow patches blend back into clean seawater blue.
     //
     // Selling oysters reuses the existing InventoryModal path (left untouched).
     public class WaterGameActionPanel : MonoBehaviour
@@ -389,23 +392,38 @@ namespace Glitchers.EcoKnow.Sandbox.UI
 
             mgr.PlayerInventory.RemoveItem(PlayerInventory.CurrencyID, cost);
 
-            // Seed the invisible facility in every seawater region's compute cell so its
-            // matrix column (negative coefficients toward all pollutants) ticks against the
-            // local pollutant population each round. One unit per region — the matrix term
-            // scales with population so larger seawater bays could in principle hold a bigger
-            // facility footprint, but for v1 the cost / decay coefficients are tuned for unit
-            // population.
+            // Seed the invisible facility in every water region's compute cell (seawater,
+            // freshwater, overflow) so the matrix's treatment row drains pollutants in all
+            // bodies of water — not just the bay. Estuary aliases are skipped because they
+            // share a compute cell with their parent freshwater region. One unit per region;
+            // the matrix term scales with population so larger water bodies could in
+            // principle hold a bigger facility footprint, but for v1 the cost / decay
+            // coefficients are tuned for unit population.
             int installed = 0;
             foreach (int regionId in regions.AllRegionIds)
             {
-                if (regions.GetRegionType(regionId) != RegionType.Seawater) continue;
+                RegionType rt = regions.GetRegionType(regionId);
+                if (rt != RegionType.Seawater && rt != RegionType.Freshwater && rt != RegionType.Overflow) continue;
                 if (regions.IsAliased(regionId)) continue;
                 if (!regions.TryGetCenterCell(regionId, out var c)) continue;
                 mgr.EntityManager.RawSetPopulation(c.col, c.row, treatmentIdx, 1L);
                 installed++;
             }
 
-            Debug.Log($"{LogChannel} Water Treatment Facility installed in {installed} seawater region(s) for {cost} currency.");
+            // Visually heal the sewage-overflow patches: drive the shader's overflow tint
+            // strength to zero so the brown blend dissolves back into clean seawater blue.
+            // SetOverflowTint already animates over 2 s via WaterTintController's lerp, so
+            // the transition is smooth. We target the seawater default shallow colour as
+            // the lerp's colour endpoint for symmetry — strength=0 makes the colour value
+            // visually irrelevant once the lerp completes, but supplying a clean endpoint
+            // avoids any odd mid-lerp tint.
+            WaterTintController tint = mgr.WaterTintController;
+            if (tint != null)
+            {
+                tint.SetOverflowTint(tint.SeawaterDefaultShallow, 0f);
+            }
+
+            Debug.Log($"{LogChannel} Water Treatment Facility installed in {installed} water region(s) for {cost} currency; overflow tint cleared.");
 
             SandboxManager.SpendActionPoint();
             SandboxManager.OnActionCompleted();

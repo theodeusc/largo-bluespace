@@ -39,9 +39,9 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         // brown at the worst day, and the ocean's volume dilutes pollution far further. These
         // factors multiply the computed t so even full-pollution rounds keep the water mostly
         // in its authored blue/green range. Tune per scenario to taste.
-        private const float MaxFreshwaterTint = 0.7f; // freshwater reads clearly muddy at peak pollution
-        private const float MaxSeawaterTint = 0.2f;   // seawater stays mostly blue but tints noticeably
-        private const float MaxOverflowTint = 0.7f;   // overflow plume tints similarly to freshwater
+        private const float MaxFreshwaterTint = 0.95f; // freshwater reads strongly muddy across the full pollution range
+        private const float MaxSeawaterTint = 0.2f;    // seawater stays mostly blue but tints noticeably
+        private const float MaxOverflowTint = 0.7f;    // overflow plume tints similarly to freshwater
 
         // Pollutant entity IDs the driver looks up. Missing entities resolve to "no contribution"
         // so non-pollutant scenarios (no e_coli/etc defined) behave as no-ops.
@@ -49,6 +49,11 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         private const string IdAgri = "eColi_agri";
         private const string IdPhosphate = "phosphate";
         private const string IdSediment = "sediment";
+        // Marker entity for the Water Treatment Facility. When any population of this entity
+        // exists in the simulation, the brown sewage-overflow tint is suppressed visually so
+        // the overflow patches blend back into clean seawater. SSOT for "treatment installed"
+        // is the entity population itself — no separate flag.
+        private const string IdTreatment = "WaterTreatmentFacility";
 
         // Per-pollutant weights in the combined-tint weighted average. eColi values are
         // many orders of magnitude larger than phosphate/sediment, so the eColi norm
@@ -68,7 +73,14 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             if (scenario == null || entityManager == null || tintController == null) return;
             if (regionManager == null || !regionManager.IsActive) return;
 
-            float freshT = ComputeZoneNorm(scenario, entityManager, regionManager, RegionType.Freshwater, ZoneFreshwater) * MaxFreshwaterTint;
+            // Freshwater applies a sqrt curve to amplify low-pollutant response: with a
+            // linear norm, half the addition only registered as ~35% brown (0.5 * 0.7),
+            // which read as "mostly clean" even when pollution was clearly present.
+            // sqrt(0.5) ≈ 0.71, so half-addition now reads as ~67% brown (0.71 * 0.95).
+            // Seawater and overflow keep the linear curve — seawater is intentionally
+            // subtle and overflow has its own dedicated shader mask path.
+            float freshNorm = ComputeZoneNorm(scenario, entityManager, regionManager, RegionType.Freshwater, ZoneFreshwater);
+            float freshT = Mathf.Sqrt(freshNorm) * MaxFreshwaterTint;
             float seaT = ComputeZoneNorm(scenario, entityManager, regionManager, RegionType.Seawater, ZoneSeawater) * MaxSeawaterTint;
             float overflowT = ComputeZoneNorm(scenario, entityManager, regionManager, RegionType.Overflow, ZoneOverflow) * MaxOverflowTint;
 
@@ -87,9 +99,30 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             // Strength stays at its authored default when overflowT == 0, scaling up toward 1
             // as overflow regions accumulate pollutants. Colour blends similarly so the brown
             // sweep into seawater intensifies with pollution rather than being a fixed shade.
+            // Once the Water Treatment Facility is online anywhere on the map, the brown
+            // sweep is suppressed visually — strength clamps to 0 so the overflow patches
+            // read as clean seawater, while the existing 2 s lerp inside WaterTintController
+            // animates the transition.
             Color overflowColor = Color.Lerp(tintController.OverflowDefaultTint, BrownTint, overflowT);
             float overflowStrength = Mathf.Lerp(tintController.OverflowDefaultStrength, 1f, overflowT);
+            if (TreatmentActive(entityManager))
+            {
+                overflowColor = tintController.SeawaterDefaultShallow;
+                overflowStrength = 0f;
+            }
             tintController.SetOverflowTint(overflowColor, overflowStrength);
+        }
+
+        // True when the WaterTreatmentFacility entity holds any population anywhere in the
+        // simulation. Mirrors the "alreadyBuilt" check WaterGameActionPanel uses so the
+        // visual treatment-online state and the gameplay one-shot purchase gate can never
+        // disagree — both read the same SSOT (the entity population).
+        private static bool TreatmentActive(EntityManager entityManager)
+        {
+            if (entityManager == null) return false;
+            int idx = entityManager.GetEntityIndex(IdTreatment);
+            if (idx < 0) return false;
+            return entityManager.GetTotalPopulationOfEntityType(idx) > 0;
         }
 
         // Combined per-zone norm in [0, 1]. Returns 0 when there are no regions of the given
