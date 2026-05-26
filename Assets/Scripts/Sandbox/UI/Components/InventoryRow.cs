@@ -111,6 +111,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                 if (resource != null)
                 {
                     _itemIcon.sprite = resource;
+                    _itemIcon.color = Color.white;
                 }
                 else
                 {

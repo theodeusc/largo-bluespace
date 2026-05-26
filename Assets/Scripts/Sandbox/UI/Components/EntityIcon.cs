@@ -21,13 +21,14 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                 return;
             }
 
-            //Set icon
+            //Set icon — clear any prefab-baked tint so pixel-art icons render at natural colours.
             if (_entityIcon != null)
             {
                 Sprite resource = Resources.Load<Sprite>(entity.Icon);
                 if (resource != null)
                 {
                     _entityIcon.sprite = resource;
+                    _entityIcon.color = Color.white;
                     _entityIcon.preserveAspect = true;
                 }
                 else
@@ -36,12 +37,11 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                 }
             }
 
-            //Set Colour
+            //Set Colour — same rationale as EntityWidget: icon backplate uniformly white so
+            //each entity's pixel-art icon reads at its natural colours.
             if (_entityBackground != null)
             {
-                Color colour = Color.white;
-                ColorUtility.TryParseHtmlString("#" + entity.Colour, out colour);
-                _entityBackground.color = colour;
+                _entityBackground.color = Color.white;
             }
         }
 
@@ -53,13 +53,14 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                 return;
             }
 
-            //Set icon
+            //Set icon — clear any prefab-baked tint so pixel-art icons render at natural colours.
             if (_entityIcon != null)
             {
                 Sprite resource = Resources.Load<Sprite>(itemDef.Icon);
                 if (resource != null)
                 {
                     _entityIcon.sprite = resource;
+                    _entityIcon.color = Color.white;
                     _entityIcon.preserveAspect = true;
                 }
                 else
@@ -77,10 +78,11 @@ namespace Glitchers.EcoKnow.Sandbox.UI
 
         public void SetCurrency()
         {
-            //Set icon
+            //Set icon — clear any prefab-baked tint so the currency sprite renders natural.
             if (_entityIcon != null && _currencySprite != null)
             {
                 _entityIcon.sprite = _currencySprite;
+                _entityIcon.color = Color.white;
                 _entityIcon.preserveAspect = true;
             }
 

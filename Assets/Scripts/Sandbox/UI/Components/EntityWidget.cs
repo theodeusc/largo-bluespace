@@ -38,13 +38,16 @@ namespace Glitchers.EcoKnow.Sandbox.UI
 
             _entityIndex = index;
 
-            //Set icon
+            //Set icon — clear any prefab-baked tint (the legacy design used a black tint to
+            //render the high-contrast emoji icons as silhouettes; current pixel-art icons
+            //carry their own colours and should render unmodulated).
             if (_entityIcon != null)
             {
                 Sprite resource = Resources.Load<Sprite>(entity.Icon);
                 if (resource != null)
                 {
                     _entityIcon.sprite = resource;
+                    _entityIcon.color = Color.white;
                 }
                 else
                 {
@@ -52,12 +55,12 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                 }
             }
 
-            //Set Colour
+            //Set Colour — icon backplate is always white; the entity's Colour field is still
+            //used elsewhere (cell tokens) but the icon panel reads cleaner with a uniform
+            //white plate so each entity's pixel-art icon shows its own colours unmuted.
             if (_entityBackground != null)
             {
-                Color colour = Color.white;
-                ColorUtility.TryParseHtmlString("#" + entity.Colour, out colour);
-                _entityBackground.color = colour;
+                _entityBackground.color = Color.white;
             }
 
             //Update populations
