@@ -18,8 +18,6 @@ namespace Glitchers.EcoKnow.Sandbox.UI
     //   • Pick Litter  — removes Scenario.PickLitterReductionPerAction units of litter from
     //                    every Seawater/Freshwater/Beach region's compute cell. One-shot per
     //                    turn (combo flag).
-    //   • Fundraise    — credits Scenario.FundraisingIncome currency. One-shot per turn
-    //                    (combo flag).
     //   • Buy WTF      — once per game, gated to CurrentRound >= Scenario.TreatmentMinRound
     //                    and currency >= Scenario.TreatmentCost. Writes WaterTreatmentFacility
     //                    population = 1 to every water-region compute cell (seawater,
@@ -149,14 +147,11 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             DrawAction(ref y, x, "Pick Litter (1 AP)", litterSubtitle, litterCan,
                 () => DoPickLitter(mgr, litterIdx, scenario.PickLitterReductionPerAction));
 
-            // Fundraise
-            bool fundraiseAlreadyDone = mgr.HasRoundAction(SandboxManager.ActionFlagFundraise);
-            bool fundraiseCan = SandboxManager.CanPerformAction() && !fundraiseAlreadyDone;
-            string fundraiseSubtitle = fundraiseAlreadyDone
-                ? "Already fundraised this turn"
-                : $"+{scenario.FundraisingIncome} currency";
-            DrawAction(ref y, x, "Fundraise (1 AP)", fundraiseSubtitle, fundraiseCan,
-                () => DoFundraise(mgr, scenario.FundraisingIncome));
+            // Fundraise has been promoted out of this placeholder IMGUI panel into a permanent
+            // canvas button under the currency widget (FundraiseButton). The action's logic
+            // now lives on SandboxManager (TryFundraise / CanFundraise) — see that class for
+            // the SSOT. This panel keeps Fish / Pick Litter / Buy Treatment until they get the
+            // same treatment.
 
             // Buy Water Treatment Facility
             bool alreadyBuilt = treatmentIdx >= 0 && entities.GetTotalPopulationOfEntityType(treatmentIdx) > 0;
@@ -360,18 +355,6 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             }
 
             mgr.MarkRoundAction(SandboxManager.ActionFlagLitter);
-            SandboxManager.SpendActionPoint();
-            SandboxManager.OnActionCompleted();
-        }
-
-        private static void DoFundraise(SandboxManager mgr, int income)
-        {
-            if (!SandboxManager.CanPerformAction()) return;
-            if (mgr.HasRoundAction(SandboxManager.ActionFlagFundraise)) return;
-            if (mgr.PlayerInventory == null) return;
-
-            mgr.PlayerInventory.AddItem(PlayerInventory.CurrencyID, income);
-            mgr.MarkRoundAction(SandboxManager.ActionFlagFundraise);
             SandboxManager.SpendActionPoint();
             SandboxManager.OnActionCompleted();
         }

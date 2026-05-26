@@ -646,6 +646,33 @@ namespace Glitchers.EcoKnow.Sandbox
             if (string.IsNullOrEmpty(flag)) return false;
             return _roundActionFlags.Contains(flag);
         }
+
+        // Single source of truth for the fundraise action's eligibility. Used by the
+        // FundraiseButton to gate its interactable state — keeping the predicate here means
+        // the UI and any future caller (e.g. AI players, scripted demos) read the same rule.
+        public bool CanFundraise()
+        {
+            return CanPerformAction()
+                && !HasRoundAction(ActionFlagFundraise)
+                && _playerInventory != null
+                && _currentScenario != null;
+        }
+
+        // Single source of truth for the fundraise action's effect. Mirrors the previous
+        // private DoFundraise that lived in WaterGameActionPanel: credits the scenario's
+        // FundraisingIncome to the player's currency, marks the per-turn fundraise flag (so
+        // the Litter+Fundraise combo bonus in ResolveRoundCombos still fires), spends one AP,
+        // and notifies the UI / multiplayer pipeline. Returns true when the action ran.
+        public bool TryFundraise()
+        {
+            if (!CanFundraise()) return false;
+
+            _playerInventory.AddItem(PlayerInventory.CurrencyID, _currentScenario.FundraisingIncome);
+            MarkRoundAction(ActionFlagFundraise);
+            SpendActionPoint();
+            OnActionCompleted();
+            return true;
+        }
         #endregion
 
         #region Main Menu

@@ -13,6 +13,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
         [SerializeField] private CurrencyCounter _currencyCounter;
         [SerializeField] private CurrencyCounter _actionPointCounter;
         [SerializeField] private ZonePanel _zonePanel;
+        [SerializeField] private FundraiseButton _fundraiseButton;
 
         [Header("Entity and Objective Panels")]
         [SerializeField] private EntityPanel _entityPanel;
@@ -51,14 +52,12 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             _populationGraph?.Init();
             _summaryModal?.HideModal();
 
-            if (scenario.Map.gridDef.HasZones())
-            {
-                _zonePanel?.SetZones(scenario.Map.gridDef.zoneDefs);
-            }
-            else
-            {
-                _zonePanel?.gameObject?.SetActive(false);
-            }
+            // Zones panel is hidden unconditionally for the water gameplay loop — the player
+            // doesn't need a zone legend in the lower-left HUD for this game. The GameObject
+            // stays in the prefab so re-enabling it later is one boolean away.
+            _zonePanel?.gameObject?.SetActive(false);
+
+            _fundraiseButton?.Init();
 
             RefreshInventories();
 
@@ -99,6 +98,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
 
             _entityPanel?.Cleanup();
             _modifyCellManager?.Cleanup();
+            _fundraiseButton?.Cleanup();
         }
         #endregion
 
@@ -209,6 +209,11 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             }
 
             _inventoryPanel?.RefreshInventory();
+
+            // Re-evaluate the Fundraise button's interactable state every time an action runs
+            // or inventory changes, so the button greys out the moment the player spends their
+            // last AP or marks the per-turn fundraise flag.
+            _fundraiseButton?.Refresh();
         }
 
         private void OnSellSuccess()
