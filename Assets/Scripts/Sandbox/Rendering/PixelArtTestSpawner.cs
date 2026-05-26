@@ -8,7 +8,13 @@ using UnityEngine;
 namespace Glitchers.EcoKnow.Sandbox.Rendering
 {
     // Test harness that places four groups of pixel-art sprites on the map:
-    //   • one seal per Beach region
+    //   • up to MaxDisplayedSeals seals pooled across all Beach cells. The seal
+    //     count is a stateful integer (0..MaxDisplayedSeals) updated each round:
+    //     decremented by 1 when aggregate pollution tier ≥ MED, incremented by 1
+    //     when LOW. AdjustSeals writes that integer to one seawater compute cell
+    //     so the EntityPanel widget reads the same number the player sees on the
+    //     beach. The seal entity is inert in the simulation (matrix row zeroed,
+    //     GrowthRate=0) — AdjustSeals is the only writer of seal population.
     //   • oysters per Seawater region, count driven LIVE from the region's compute-cell oyster
     //     population (normalised against ExpectedMaxOysterPerRegion, clamped to
     //     MaxOysterSpritesPerRegion). Biased toward shoreline.
@@ -22,9 +28,10 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
     // Placement is persistent: each round we compute a target count per group and only
     // ADD positions when the target rises or REMOVE the most-recently-added positions
     // when it falls. Existing sprites stay where they were placed — nothing gets
-    // relocated round-to-round. For fixed-count groups (seal/oyster/seagrass) the delta
-    // is always zero after the initial round, so RegisterGroup runs at most once and the
-    // sprites never flicker.
+    // relocated round-to-round. For fixed-count groups (seagrass) the delta is always
+    // zero after the initial round, so RegisterGroup runs at most once and the sprites
+    // never flicker; for population-driven groups (seal/oyster/litter) the delta tracks
+    // the simulation but existing sprites still stay put.
     //
     // OnScenarioReady clears the persistent state (region IDs from the previous scenario
     // are invalid) and force-registers empty groups to wipe any leftover sprites; the
@@ -52,14 +59,23 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
 
         // Visual sizes in world units (1 unit = 1 cell). Seals are big, oysters tiny.
         private const float SealWorldSize = 2.1f;
-        private const float SeagrassWorldSize = 0.35f;
-        private const float OysterWorldSize = 0.18f;
-        private const float BottleWorldSize = 0.3f;
+        private const float SeagrassWorldSize = 0.525f;
+        private const float OysterWorldSize = 0.27f;
+        private const float BottleWorldSize = 0.6f;
 
-        // Per-region counts for fixed-count groups. One seal per beach region; SeagrassPerSeaRegion
-        // per seawater region. Oysters are no longer fixed — see MaxOysterSpritesPerRegion below.
-        private const int SealPerBeachRegion = 1;
+        // Per-region count for the seagrass group (fixed). Seals and oysters are no
+        // longer fixed — see MaxDisplayedSeals / MaxOysterSpritesPerRegion below.
         private const int SeagrassPerSeaRegion = 100;
+
+        // Seal count is a stateful integer in [0, MaxDisplayedSeals]. Every round
+        // AdjustSeals reads PollutionTier.ComputeAggregateTier, then nudges the count:
+        //   • LOW  → +1 (cap at MaxDisplayedSeals) — seals return after pollution clears
+        //   • MED/HIGH → -1 (floor at 0) — seals leave while water stays polluted
+        // The count is stored in the seawater compute cell's seal population, so the
+        // right-side EntityPanel widget (which reads GetTotalPopulationOfEntityType)
+        // shows the same integer as the on-screen sprite count.
+        private const string SealEntityId = "seal";
+        private const int MaxDisplayedSeals = 3;
 
         // Oyster visual count is driven LIVE from the seawater compute cell's oyster population.
         // Per region: target_sprites = round( clamp01(live_pop / ExpectedMaxOysterPerRegion) *
@@ -133,11 +149,12 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
             EdgeBufferCells = EntityEdgeBufferCells
         };
 
-        // Persistent placement state. Per-region groups (seal/oyster/seagrass) keep their
-        // positions in a dictionary keyed by region id; the bottle group is global. We
-        // never overwrite an existing position — only append on growth and trim the tail
-        // on shrinkage — so sprite GameObjects survive across rounds without flicker.
-        private readonly Dictionary<int, List<Vector3>> _sealPositions = new Dictionary<int, List<Vector3>>();
+        // Persistent placement state. Per-region groups (oyster/seagrass) keep their
+        // positions in a dictionary keyed by region id; seals and bottles are pooled
+        // globally across all Beach cells, so they use a single flat list each. We never
+        // overwrite an existing position — only append on growth and trim the tail on
+        // shrinkage — so sprite GameObjects survive across rounds without flicker.
+        private readonly List<Vector3> _sealPositions = new List<Vector3>();
         private readonly Dictionary<int, List<Vector3>> _oysterPositions = new Dictionary<int, List<Vector3>>();
         private readonly Dictionary<int, List<float>> _oysterRotations = new Dictionary<int, List<float>>();
         private readonly Dictionary<int, List<Vector3>> _seagrassPositions = new Dictionary<int, List<Vector3>>();
@@ -266,29 +283,121 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
             // existing positions never get re-rolled.
             System.Random rng = new System.Random(UnityEngine.Random.Range(int.MinValue, int.MaxValue));
 
-            AdjustSeals(regions, grid, sealSprite, rng);
+            AdjustSeals(regions, grid, entities, sealSprite, rng);
             AdjustOysters(regions, grid, entities, oysterSprite, rng);
             AdjustSeagrass(regions, grid, seagrassSprite, rng);
             AdjustBottles(regions, grid, entities, bottleSprite, rng);
         }
 
-        private void AdjustSeals(RegionComputeManager regions, GridManager grid, Sprite sprite, System.Random rng)
+        // Adjusts up to MaxDisplayedSeals seal sprites pooled across all Beach cells.
+        // Count is a stateful integer in [0, MaxDisplayedSeals]: each round, the
+        // aggregate pollution tier (worst-of all DisplayAsPollutionTier entities)
+        // nudges it by ±1 — down while ≥ MED, up while LOW. The count lives in the
+        // seal population of one seawater compute cell so the EntityPanel widget
+        // reads the same integer the player sees on the beach (SSOT).
+        private void AdjustSeals(
+            RegionComputeManager regions,
+            GridManager grid,
+            EntityManager entities,
+            Sprite sprite,
+            System.Random rng)
         {
-            bool changed = AdjustPerRegionGroup(
-                regions, grid, rng,
-                targetType: RegionType.Beach,
-                targetCountForRegion: _ => SealPerBeachRegion,
-                settings: SealSettings,
-                rotationsByRegion: null,
-                positionsByRegion: _sealPositions,
-                out List<Vector3> allPositions, out _);
-            if (!changed) return;
+            if (entities == null)
+            {
+                Debug.LogWarning($"{LogChannel} EntityManager unavailable — leaving seals unchanged this round.");
+                return;
+            }
+
+            int idxSeal = entities.GetEntityIndex(SealEntityId);
+            if (idxSeal < 0)
+            {
+                if (_sealPositions.Count > 0)
+                {
+                    _sealPositions.Clear();
+                    ClearGroup(SealGroupId, sprite, SealWorldSize, renderAboveAllTerrain: true, renderAboveTerrain: null);
+                }
+                return;
+            }
+
+            // Walk regions once: pick a single seawater compute cell as the
+            // canonical "seal counter" cell, sum any seal pop currently in seawater
+            // cells (the previous round's count, plus any defensive leftovers), and
+            // collect every Beach cell for visual placement.
+            (int col, int row) counterCell = (-1, -1);
+            List<(int col, int row)> extraSeawaterCells = new List<(int col, int row)>();
+            long currentPop = 0L;
+            List<(int col, int row)> allBeachCells = new List<(int col, int row)>();
+            foreach (int regionId in regions.AllRegionIds)
+            {
+                RegionType t = regions.GetRegionType(regionId);
+                if (t == RegionType.Seawater && !regions.IsAliased(regionId) && regions.TryGetCenterCell(regionId, out var c))
+                {
+                    currentPop += System.Math.Max(0L, entities.RawGetPopulation(c.col, c.row, idxSeal));
+                    if (counterCell.col < 0) counterCell = c;
+                    else extraSeawaterCells.Add(c);
+                }
+                if (t == RegionType.Beach)
+                {
+                    IReadOnlyList<(int col, int row)> cells = regions.GetRegionCells(regionId);
+                    for (int i = 0; i < cells.Count; i++) allBeachCells.Add(cells[i]);
+                }
+            }
+
+            if (counterCell.col < 0) return; // No seawater region — nothing to anchor seals to.
+
+            // Apply the ±1 step. PollutionTier.ComputeAggregateTier picks the worst
+            // tier across every DisplayAsPollutionTier entity, so any one pollutant
+            // hitting MED kicks the count down.
+            int current = (int)System.Math.Min((long)MaxDisplayedSeals, currentPop);
+            string tier = PollutionTier.ComputeAggregateTier(entities);
+            int targetCount = tier == PollutionTier.Low
+                ? System.Math.Min(MaxDisplayedSeals, current + 1)
+                : System.Math.Max(0, current - 1);
+
+            // Write the new count to the counter cell and zero any other seawater
+            // cells so GetTotalPopulationOfEntityType (which sums across cells) returns
+            // exactly targetCount for the EntityPanel widget.
+            entities.RawSetPopulation(counterCell.col, counterCell.row, idxSeal, targetCount);
+            for (int i = 0; i < extraSeawaterCells.Count; i++)
+            {
+                var extra = extraSeawaterCells[i];
+                entities.RawSetPopulation(extra.col, extra.row, idxSeal, 0L);
+            }
+
+            // OnNewRoundStarted refreshes the EntityPanel widgets BEFORE OnRoundAdvanced
+            // fires this method, so without an explicit nudge the seal widget would
+            // display the previous round's count (one step behind the sprites). Fire the
+            // existing onEntityIntroduced event — SandboxUI routes it to
+            // EntityPanel.OnEntityUpdated, which refreshes just the seal widget to read
+            // the value we just wrote.
+            entities.onEntityIntroduced?.Invoke(counterCell.col, counterCell.row, idxSeal);
+
+            int currentVisual = _sealPositions.Count;
+            int delta = targetCount - currentVisual;
+
+            Debug.Log($"{LogChannel} Seals: tier={tier}, currentPop={currentPop}, target={targetCount}, visual={currentVisual}, delta={delta:+#;-#;0}.");
+
+            if (delta == 0) return;
+
+            if (delta > 0 && allBeachCells.Count > 0)
+            {
+                List<Vector3> newPositions = PixelArtDistributionSampler.Sample(
+                    allBeachCells, delta, grid, SealSettings, rng);
+                _sealPositions.AddRange(newPositions);
+            }
+            else if (delta < 0)
+            {
+                // LIFO removal: trim the tail. Existing seals' positions are untouched
+                // so the survivors stay where they were.
+                int toRemove = System.Math.Min(-delta, currentVisual);
+                _sealPositions.RemoveRange(currentVisual - toRemove, toRemove);
+            }
 
             PixelArtEntityRenderer.Instance.RegisterGroup(new PixelArtEntityRenderer.GroupRequest
             {
                 GroupId = SealGroupId,
                 Sprite = sprite,
-                Positions = allPositions,
+                Positions = _sealPositions,
                 // Seal renders above every terrain layer so it isn't occluded by sand,
                 // grass, or water as it wanders across the shoreline.
                 RenderAboveAllTerrain = true,
@@ -419,6 +528,11 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
                 ? Mathf.Clamp01(totalLitter / ExpectedMaxLitterTotal)
                 : 0f;
             int targetCount = Mathf.RoundToInt(normalised * MaxDisplayedBottles);
+            // Close the pickup/visual desync window: any non-zero logical population must
+            // render at least one bottle, so "no bottles visible" agrees with "no pickups
+            // available." Otherwise [1, ExpectedMaxLitterTotal/MaxDisplayedBottles/2) rounds
+            // down to 0 sprites while DoPickLitter still extracts the residual unit.
+            if (totalLitter > 0L && targetCount == 0) targetCount = 1;
             int currentCount = _bottlePositions.Count;
             int delta = targetCount - currentCount;
 
