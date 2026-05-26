@@ -10,6 +10,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
     {
         [Header("Player Side Panel")]
         [SerializeField] private RoundIndicator _roundIndicator;
+        [SerializeField] private SicknessIndicator _sicknessIndicator;
         [SerializeField] private CurrencyCounter _currencyCounter;
         [SerializeField] private CurrencyCounter _actionPointCounter;
         [SerializeField] private ZonePanel _zonePanel;
@@ -149,6 +150,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             _inventoryModal?.HideModal();
 
             RefreshInventories();
+            RefreshSicknessIndicator();
         }
 
         public void OnActionCompleted()
@@ -161,6 +163,9 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             // Idempotent — paths that already refreshed inventories prior to OnActionCompleted
             // just re-set the same label values.
             RefreshInventories();
+            // Sickness is mutated via raw PlayerInventory.AddItem (no onItemSold/Bought event),
+            // so the HUD refresh has to be driven from here rather than reacting to an event.
+            RefreshSicknessIndicator();
         }
         #endregion
 
@@ -215,6 +220,32 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             // or inventory changes, so the button greys out the moment the player spends their
             // last AP or marks the per-turn fundraise flag.
             _fundraiseButton?.Refresh();
+        }
+
+        private void RefreshSicknessIndicator()
+        {
+            if (_sicknessIndicator == null) return;
+            SandboxManager mgr = SandboxManager.Instance;
+            if (mgr == null || mgr.PlayerInventory == null) return;
+
+            int current = mgr.PlayerInventory.GetAmountHeld(WaterGameActionPanel.SicknessInventoryId);
+
+            // Pull the lose-condition threshold so the widget tracks whatever the scenario
+            // defines, instead of hardcoding 3 in two places (scenario JSON + UI).
+            int max = 0;
+            if (mgr.LoseConditions != null)
+            {
+                foreach (LoseCondition lc in mgr.LoseConditions)
+                {
+                    if (lc != null && lc.TargetItemID == WaterGameActionPanel.SicknessInventoryId)
+                    {
+                        max = Mathf.Max(1, (int)lc.LowerLimit);
+                        break;
+                    }
+                }
+            }
+
+            _sicknessIndicator.UpdateSicknessCounter(current, max);
         }
 
         private void OnSellSuccess()

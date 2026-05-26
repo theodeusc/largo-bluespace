@@ -104,30 +104,11 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             float x = Screen.width - PanelWidth - RightMargin;
             float y = TopMargin;
 
-            // Compute the readouts once — used by both the in-panel header and the
-            // prominent top-of-screen badge.
-            int sickness = mgr.PlayerInventory != null
-                ? mgr.PlayerInventory.GetAmountHeld(SicknessInventoryId)
-                : 0;
+            // Sickness count + water-pollution tier now live on the left-side SicknessIndicator
+            // HUD widget. The contamination-risk readout is still surfaced here through the
+            // Fish button's subtitle, which flips when seawater pollution crosses the threshold.
             int eColiIdx = mgr.EntityManager.GetEntityIndex(EColiSewageEntityId);
             bool waterContaminatedForFishing = AnySeawaterRegionHasPopulationAbove(mgr, eColiIdx, ECOLI_SICKNESS_THRESHOLD);
-            string qualityLabel = ClassifyWaterQuality(mgr);
-            Color qualityColor = PollutionTier.Colour(qualityLabel);
-
-            // In-panel header — water-pollution line (coloured) followed by the sickness +
-            // fishing status line (plain white outlined). Split into two labels so just the
-            // tier text picks up the green/amber/red tint while the rest stays readable.
-            float waterLineY = y;
-            DrawColoredOutlinedLabel(
-                new Rect(x, waterLineY, PanelWidth, StatusHeight),
-                $"Water Pollution: {qualityLabel}",
-                _statusStyle, _statusOutlineStyle, qualityColor);
-            float sicknessLineY = waterLineY + StatusHeight + 2f;
-            DrawOutlinedLabel(
-                new Rect(x, sicknessLineY, PanelWidth, StatusHeight),
-                $"Sickness: {sickness} / 3    Fishing: {(waterContaminatedForFishing ? "RISKY" : "safe")}",
-                _statusStyle, _statusOutlineStyle);
-            y = sicknessLineY + StatusHeight + Padding;
 
             // Fish
             bool fishCan = SandboxManager.CanPerformAction() && AnySeawaterRegionHasEntity(mgr, oysterIdx);
@@ -212,23 +193,6 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             GUI.Label(new Rect(rect.x, rect.y - 1f, rect.width, rect.height), text, outline);
             GUI.Label(new Rect(rect.x, rect.y + 1f, rect.width, rect.height), text, outline);
             GUI.Label(rect, text, fill);
-        }
-
-        // Same outline trick but tints the fill via GUI.contentColor. Outline stays black
-        // because the outline style's textColor is black and we hold contentColor at white
-        // during the four outline draws — the multiplicative tint only takes effect for the
-        // final fill draw.
-        private static void DrawColoredOutlinedLabel(Rect rect, string text, GUIStyle fill, GUIStyle outline, Color fillColor)
-        {
-            Color prev = GUI.contentColor;
-            GUI.contentColor = Color.white;
-            GUI.Label(new Rect(rect.x - 1f, rect.y, rect.width, rect.height), text, outline);
-            GUI.Label(new Rect(rect.x + 1f, rect.y, rect.width, rect.height), text, outline);
-            GUI.Label(new Rect(rect.x, rect.y - 1f, rect.width, rect.height), text, outline);
-            GUI.Label(new Rect(rect.x, rect.y + 1f, rect.width, rect.height), text, outline);
-            GUI.contentColor = fillColor;
-            GUI.Label(rect, text, fill);
-            GUI.contentColor = prev;
         }
 
 
@@ -376,14 +340,6 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                 if (mgr.EntityManager.RawGetPopulation(c.col, c.row, entityIdx) > threshold) return true;
             }
             return false;
-        }
-
-        // Catchment-wide water-pollution tier — delegates to the same PollutionTier helper
-        // the EntityWidget + ObjectiveWidget call so the panel header, the aggregator widget
-        // on the right, and the aggregate win condition can never disagree.
-        private static string ClassifyWaterQuality(SandboxManager mgr)
-        {
-            return PollutionTier.ComputeAggregateTier(mgr.EntityManager);
         }
 
         private static bool AnyShoreRegionHasEntity(SandboxManager mgr, int entityIdx)
