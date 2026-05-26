@@ -78,6 +78,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             if (playerInventory != null)
             {
                 playerInventory.onItemSold += OnInventoryUpdated;
+                playerInventory.onItemBought += OnInventoryUpdated;
             }
 
             //Force rebuild

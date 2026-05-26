@@ -194,7 +194,9 @@
       }
     ],
     "Items": [
-      { "ID": "oyster", "Icon": "Icons/oyster", "Value": 1, "CanSell": true }
+      { "ID": "water_treatment_facility", "Icon": "Icons/water_treatment_facility", "Value": 0, "CanSell": false, "BuyPrice": 200, "MaxQuantity": 1 },
+      { "ID": "oyster", "Icon": "Icons/oyster", "Value": 1, "CanSell": true },
+      { "ID": "litter", "Icon": "Icons/litter", "Value": 0, "CanSell": false }
     ],
     "WinConditions": [
       {

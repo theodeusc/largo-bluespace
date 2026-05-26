@@ -673,6 +673,81 @@ namespace Glitchers.EcoKnow.Sandbox
             OnActionCompleted();
             return true;
         }
+
+        // Inventory item ID that mirrors the WaterTreatmentFacility entity's purchase state.
+        // The entity (an invisible field placed in every water region's compute cell) is the
+        // SSOT for "is the facility online"; this item is the UI-side reflection so the
+        // facility appears as a row in the inventory modal, greyed before purchase and
+        // unsellable after.
+        public const string WaterTreatmentItemID = "water_treatment_facility";
+        private const string TreatmentEntityID = "WaterTreatmentFacility";
+
+        // Predicate gating the inventory modal's Buy button for the Water Treatment Facility.
+        // Mirrors the inline checks previously baked into WaterGameActionPanel's IMGUI button:
+        // requires an AP, an unlocked round, sufficient currency, the entity to exist on the
+        // scenario, region-compute mode (the install loop walks region center cells), and not
+        // already built. The modal uses this both to enable/disable the Buy commit and to
+        // grey-out the row when the player can't yet buy it.
+        public bool CanBuyWaterTreatment()
+        {
+            if (_playerInventory == null || _currentScenario == null || _entityManager == null) return false;
+            if (_regionComputeManager == null) return false;
+            if (!CanPerformAction()) return false;
+            if (_currentRound < _currentScenario.TreatmentMinRound) return false;
+
+            int treatmentIdx = _entityManager.GetEntityIndex(TreatmentEntityID);
+            if (treatmentIdx < 0) return false;
+            if (_entityManager.GetTotalPopulationOfEntityType(treatmentIdx) > 0) return false;
+
+            if (_playerInventory.GetAmountHeld(PlayerInventory.CurrencyID) < _currentScenario.TreatmentCost) return false;
+
+            return true;
+        }
+
+        // Single source of truth for the Water Treatment Facility purchase. Body is the
+        // previous DoBuyTreatment (placeholder IMGUI button on WaterGameActionPanel) moved
+        // here so the inventory modal and any future caller go through one entry point.
+        // Currency deduction routes through PlayerInventory.BuyItem so the modal's row
+        // quantity ticks up to 1 automatically and onItemBought fires for HUD refreshes.
+        public bool TryBuyWaterTreatment()
+        {
+            if (!CanBuyWaterTreatment()) return false;
+
+            int treatmentIdx = _entityManager.GetEntityIndex(TreatmentEntityID);
+
+            //Atomic buy: deduct currency + add 1 unit to inventory (mirrors entity install below).
+            if (!_playerInventory.BuyItem(WaterTreatmentItemID, 1)) return false;
+
+            // Seed the invisible facility in every water region's compute cell (seawater,
+            // freshwater, overflow) so the matrix's treatment row drains pollutants in all
+            // bodies of water — not just the bay. Estuary aliases are skipped because they
+            // share a compute cell with their parent freshwater region.
+            int installed = 0;
+            foreach (int regionId in _regionComputeManager.AllRegionIds)
+            {
+                RegionType rt = _regionComputeManager.GetRegionType(regionId);
+                if (rt != RegionType.Seawater
+                    && rt != RegionType.Freshwater
+                    && rt != RegionType.Overflow) continue;
+                if (_regionComputeManager.IsAliased(regionId)) continue;
+                if (!_regionComputeManager.TryGetCenterCell(regionId, out var c)) continue;
+                _entityManager.RawSetPopulation(c.col, c.row, treatmentIdx, 1L);
+                installed++;
+            }
+
+            // Visually heal the sewage-overflow patches: drive the shader's overflow tint
+            // strength to zero so the brown blend dissolves back into clean seawater blue.
+            if (_waterTintController != null)
+            {
+                _waterTintController.SetOverflowTint(_waterTintController.SeawaterDefaultShallow, 0f);
+            }
+
+            Debug.Log($"{LogChannel} Water Treatment Facility installed in {installed} water region(s) for {_currentScenario.TreatmentCost} currency; overflow tint cleared.");
+
+            SpendActionPoint();
+            OnActionCompleted();
+            return true;
+        }
         #endregion
 
         #region Main Menu

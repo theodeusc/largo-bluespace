@@ -41,29 +41,60 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             this.gameObject.SetActive(false);
         }
 
-        public void OnSellPressed()
+        public void OnSellPressed() => OnCommitPressed();
+
+        // Polymorphic commit: sell-mode rows go through PlayerInventory.SellItem (existing path),
+        // buy-mode rows route to the matching SandboxManager entry point (currently only the
+        // Water Treatment Facility's region-install action). The bottom modal button calls this
+        // single handler regardless of which mode rows are selected; OnUnitsAdjusted handles
+        // the button's label/state so the player sees "Buy" or "Sell" appropriately.
+        public void OnCommitPressed()
         {
             if (!SandboxManager.CanPerformAction())
             {
                 return;
             }
 
-            if (_inventoryRowList != null)
+            if (_inventoryRowList == null) return;
+
+            InventoryRow[] selectedRows = _inventoryRowList.Where(x => x.IsSelectedForSell).ToArray();
+            if (selectedRows == null || selectedRows.Length == 0) return;
+
+            bool anyCommit = false;
+
+            foreach (InventoryRow row in selectedRows)
             {
-                InventoryRow[] selectedRows = _inventoryRowList.Where(x => x.IsSelectedForSell).ToArray();
-                if ((selectedRows != null) && (selectedRows.Count() > 0))
+                if (row.IsBuyMode)
                 {
-                    foreach (InventoryRow row in selectedRows)
+                    //Currently only the Water Treatment Facility is a buyable; route to its
+                    //single source-of-truth purchase method on SandboxManager so the region
+                    //install + tint clear run alongside the inventory mutation.
+                    if (row.ItemID == SandboxManager.WaterTreatmentItemID)
                     {
-                        SandboxManager.Instance.PlayerInventory?.SellItem(row.ItemID, row.SelectedUnits);
-                        row.ClearSelection();
+                        if (SandboxManager.Instance.TryBuyWaterTreatment()) anyCommit = true;
                     }
-
-                    RefreshInventory();
-                    OnUnitsAdjusted();
-
-                    onSellSuccess?.Invoke();
+                    else
+                    {
+                        //Future generic buyables can route through the inventory-only path.
+                        if (SandboxManager.Instance.PlayerInventory?.BuyItem(row.ItemID, row.SelectedUnits) == true)
+                            anyCommit = true;
+                    }
                 }
+                else
+                {
+                    if (SandboxManager.Instance.PlayerInventory?.SellItem(row.ItemID, row.SelectedUnits) == true)
+                        anyCommit = true;
+                }
+
+                row.ClearSelection();
+            }
+
+            RefreshInventory();
+            OnUnitsAdjusted();
+
+            if (anyCommit)
+            {
+                onSellSuccess?.Invoke();
             }
         }
 
@@ -84,31 +115,52 @@ namespace Glitchers.EcoKnow.Sandbox.UI
         public void OnUnitsAdjusted()
         {
             bool anySelected = false;
+            bool anyBuySelected = false;
             int totalUnits = 0;
-            int totalProfit = 0;
+            int totalAmount = 0;
             foreach (InventoryRow row in _inventoryRowList)
             {
                 if (row.IsSelectedForSell)
                 {
                     anySelected = true;
                     totalUnits += row.SelectedUnits;
-                    totalProfit += (row.SelectedUnits * row.ItemValue);
+                    if (row.IsBuyMode)
+                    {
+                        anyBuySelected = true;
+                        totalAmount += (row.SelectedUnits * row.BuyPrice);
+                    }
+                    else
+                    {
+                        totalAmount += (row.SelectedUnits * row.ItemValue);
+                    }
                 }
             }
 
+            //Commit button interactable when something is selected AND, for buy rows, the
+            //player still satisfies the gating predicate (round/currency/region-mode/etc.).
+            bool buyAllowed = !anyBuySelected || (SandboxManager.Exists && SandboxManager.Instance.CanBuyWaterTreatment());
+
             if (_sellButton != null)
             {
-                _sellButton.interactable = anySelected && SandboxManager.CanPerformAction();
+                _sellButton.interactable = anySelected && SandboxManager.CanPerformAction() && buyAllowed;
             }
 
             if (_unitText != null)
             {
-                _unitText.text = string.Format($"Sell {totalUnits.ToString("n0")} Units for ");
+                if (anyBuySelected)
+                {
+                    string unitWord = totalUnits == 1 ? "Unit" : "Units";
+                    _unitText.text = $"Buy {totalUnits.ToString("n0")} {unitWord} for ";
+                }
+                else
+                {
+                    _unitText.text = $"Sell {totalUnits.ToString("n0")} Units for ";
+                }
             }
 
             if (_profitText != null)
             {
-                _profitText.text = totalProfit.ToString("n0");
+                _profitText.text = totalAmount.ToString("n0");
             }
         }
 
@@ -131,11 +183,12 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                 //Currency
                 if (_currency != null)
                 {
-                    _currency.text = string.Format($"£{inventory.GetAmountHeld(PlayerInventory.CurrencyID)}");
+                    _currency.text = string.Format($"ï¿½{inventory.GetAmountHeld(PlayerInventory.CurrencyID)}");
                 }
 
-                //Items
-                foreach (Tuple<Item, int> item in inventory.GetItemInventory())
+                //Items â€” include defs the player doesn't yet hold so buyables (e.g. the Water
+                //Treatment Facility) appear as greyed rows pinned to the top of the list.
+                foreach (Tuple<Item, int> item in inventory.GetItemDefsIncludingUnowned())
                 {
                     InventoryRow row = Instantiate(_inventoryRowPrefab, _inventoryRowContainer);
                     if (row != null)

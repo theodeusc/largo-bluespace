@@ -34,6 +34,8 @@ public class ItemNode : Node
 
     [SerializeField] private int _value;
     [SerializeField] private bool _canSell;
+    [SerializeField] private int _buyPrice = 0;
+    [SerializeField] private int _maxQuantity = 0;
 
 
 
@@ -52,7 +54,7 @@ public class ItemNode : Node
 
     public Item GetItem()
     {
-        return new Item(_id, _iconPath, _value, _canSell);
+        return new Item(_id, _iconPath, _value, _canSell, _buyPrice, _maxQuantity);
     }
 
     public bool IsConnected()

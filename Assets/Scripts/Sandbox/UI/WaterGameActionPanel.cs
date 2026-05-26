@@ -18,13 +18,10 @@ namespace Glitchers.EcoKnow.Sandbox.UI
     //   • Pick Litter  — removes Scenario.PickLitterReductionPerAction units of litter from
     //                    every Seawater/Freshwater/Beach region's compute cell. One-shot per
     //                    turn (combo flag).
-    //   • Buy WTF      — once per game, gated to CurrentRound >= Scenario.TreatmentMinRound
-    //                    and currency >= Scenario.TreatmentCost. Writes WaterTreatmentFacility
-    //                    population = 1 to every water-region compute cell (seawater,
-    //                    freshwater, overflow) so the shared matrix's treatment-row
-    //                    coefficients drive pollutant decay in all bodies of water each
-    //                    subsequent round. Also clears the overflow brown tint so the
-    //                    sewage-overflow patches blend back into clean seawater blue.
+    //
+    // The Water Treatment Facility purchase used to live here as well; it is now an inventory
+    // item that the player buys from the Inventory modal. Its install logic (region seeding +
+    // tint clear) lives on SandboxManager.TryBuyWaterTreatment.
     //
     // Selling oysters reuses the existing InventoryModal path (left untouched).
     public class WaterGameActionPanel : MonoBehaviour
@@ -33,8 +30,12 @@ namespace Glitchers.EcoKnow.Sandbox.UI
 
         private const string OysterEntityId = "oyster";
         private const string LitterEntityId = "litter";
-        private const string TreatmentEntityId = "WaterTreatmentFacility";
         private const string EColiSewageEntityId = "eColi_sewage";
+
+        // Inventory item ID that mirrors litter the player has picked up. Shares the entity's
+        // string + icon so the modal/HUD reuse the existing pixel-art asset, but lives in the
+        // PlayerInventory.Items list as a non-sellable counter (Value=0, CanSell=false).
+        private const string LitterInventoryId = "litter";
 
         // (Pick Litter intentionally does NOT touch phosphate any more. Per design feedback:
         // litter is litter, water quality is a separate dimension only meaningfully moved by
@@ -96,8 +97,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             if (entities == null) return;
             int oysterIdx = entities.GetEntityIndex(OysterEntityId);
             int litterIdx = entities.GetEntityIndex(LitterEntityId);
-            int treatmentIdx = entities.GetEntityIndex(TreatmentEntityId);
-            if (oysterIdx < 0 && litterIdx < 0 && treatmentIdx < 0) return;
+            if (oysterIdx < 0 && litterIdx < 0) return;
 
             EnsureStyles();
 
@@ -150,37 +150,8 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             // Fundraise has been promoted out of this placeholder IMGUI panel into a permanent
             // canvas button under the currency widget (FundraiseButton). The action's logic
             // now lives on SandboxManager (TryFundraise / CanFundraise) — see that class for
-            // the SSOT. This panel keeps Fish / Pick Litter / Buy Treatment until they get the
-            // same treatment.
-
-            // Buy Water Treatment Facility
-            bool alreadyBuilt = treatmentIdx >= 0 && entities.GetTotalPopulationOfEntityType(treatmentIdx) > 0;
-            bool roundUnlocked = mgr.CurrentRound >= scenario.TreatmentMinRound;
-            int currency = mgr.PlayerInventory != null
-                ? mgr.PlayerInventory.GetAmountHeld(PlayerInventory.CurrencyID)
-                : 0;
-            bool canAfford = currency >= scenario.TreatmentCost;
-            bool treatmentCan = SandboxManager.CanPerformAction()
-                && !alreadyBuilt
-                && roundUnlocked
-                && canAfford
-                && treatmentIdx >= 0;
-            string treatmentSubtitle;
-            if (alreadyBuilt)
-            {
-                treatmentSubtitle = "Treatment online";
-            }
-            else if (!roundUnlocked)
-            {
-                // Scenario stores 0-indexed round; show 1-indexed for the player.
-                treatmentSubtitle = $"Cost: {scenario.TreatmentCost} (unlocks round {scenario.TreatmentMinRound + 1})";
-            }
-            else
-            {
-                treatmentSubtitle = $"Cost: {scenario.TreatmentCost}";
-            }
-            DrawAction(ref y, x, "Buy Water Treatment Facility (1 AP)", treatmentSubtitle, treatmentCan,
-                () => DoBuyTreatment(mgr, treatmentIdx, scenario.TreatmentCost));
+            // the SSOT. Similarly the Water Treatment Facility purchase now lives in the
+            // Inventory modal as a buyable item (SandboxManager.TryBuyWaterTreatment).
         }
 
         private void DrawAction(ref float y, float x, string title, string subtitle, bool enabled, System.Action onPressed)
@@ -334,7 +305,9 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             // Trim litter from any shore/bay region's compute cell that still has any. No
             // water-quality side-effect on purpose: that lever lives with the Water Treatment
             // Facility. Picking is still worth the AP for the Litter+Fundraise combo bonus
-            // and for the bottle-count beach visual.
+            // and for the bottle-count beach visual. Track the total removed so it can be
+            // mirrored into the player's inventory as a non-sellable counter.
+            long totalRemoved = 0L;
             if (litterIdx >= 0 && litterReductionPerRegion > 0)
             {
                 foreach (int regionId in regions.AllRegionIds)
@@ -350,64 +323,21 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                     {
                         long newPop = System.Math.Max(0L, pop - litterReductionPerRegion);
                         mgr.EntityManager.RawSetPopulation(c.col, c.row, litterIdx, newPop);
+                        totalRemoved += pop - newPop;
                     }
                 }
             }
 
+            //Deposit the picked-up litter into the inventory as a non-sellable counter so
+            //players can see how much they've cleaned up across the game. Clamped to int
+            //range; in practice the per-action removal is on the order of tens per region.
+            if (totalRemoved > 0L && mgr.PlayerInventory != null)
+            {
+                int delta = totalRemoved > int.MaxValue ? int.MaxValue : (int)totalRemoved;
+                mgr.PlayerInventory.AddItem(LitterInventoryId, delta);
+            }
+
             mgr.MarkRoundAction(SandboxManager.ActionFlagLitter);
-            SandboxManager.SpendActionPoint();
-            SandboxManager.OnActionCompleted();
-        }
-
-        private static void DoBuyTreatment(SandboxManager mgr, int treatmentIdx, int cost)
-        {
-            if (treatmentIdx < 0 || mgr.PlayerInventory == null) return;
-            if (!SandboxManager.CanPerformAction()) return;
-            if (mgr.PlayerInventory.GetAmountHeld(PlayerInventory.CurrencyID) < cost) return;
-            if (mgr.EntityManager.GetTotalPopulationOfEntityType(treatmentIdx) > 0) return;
-
-            RegionComputeManager regions = mgr.RegionComputeManager;
-            if (regions == null)
-            {
-                Debug.LogWarning($"{LogChannel} Buy Treatment failed: scenario is not in region-compute mode.");
-                return;
-            }
-
-            mgr.PlayerInventory.RemoveItem(PlayerInventory.CurrencyID, cost);
-
-            // Seed the invisible facility in every water region's compute cell (seawater,
-            // freshwater, overflow) so the matrix's treatment row drains pollutants in all
-            // bodies of water — not just the bay. Estuary aliases are skipped because they
-            // share a compute cell with their parent freshwater region. One unit per region;
-            // the matrix term scales with population so larger water bodies could in
-            // principle hold a bigger facility footprint, but for v1 the cost / decay
-            // coefficients are tuned for unit population.
-            int installed = 0;
-            foreach (int regionId in regions.AllRegionIds)
-            {
-                RegionType rt = regions.GetRegionType(regionId);
-                if (rt != RegionType.Seawater && rt != RegionType.Freshwater && rt != RegionType.Overflow) continue;
-                if (regions.IsAliased(regionId)) continue;
-                if (!regions.TryGetCenterCell(regionId, out var c)) continue;
-                mgr.EntityManager.RawSetPopulation(c.col, c.row, treatmentIdx, 1L);
-                installed++;
-            }
-
-            // Visually heal the sewage-overflow patches: drive the shader's overflow tint
-            // strength to zero so the brown blend dissolves back into clean seawater blue.
-            // SetOverflowTint already animates over 2 s via WaterTintController's lerp, so
-            // the transition is smooth. We target the seawater default shallow colour as
-            // the lerp's colour endpoint for symmetry — strength=0 makes the colour value
-            // visually irrelevant once the lerp completes, but supplying a clean endpoint
-            // avoids any odd mid-lerp tint.
-            WaterTintController tint = mgr.WaterTintController;
-            if (tint != null)
-            {
-                tint.SetOverflowTint(tint.SeawaterDefaultShallow, 0f);
-            }
-
-            Debug.Log($"{LogChannel} Water Treatment Facility installed in {installed} water region(s) for {cost} currency; overflow tint cleared.");
-
             SandboxManager.SpendActionPoint();
             SandboxManager.OnActionCompleted();
         }
