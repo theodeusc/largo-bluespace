@@ -11,6 +11,13 @@ namespace Glitchers.EcoKnow.Sandbox.Menus
 
         private const string LogChannel = "[MenuScreen_Select]";
 
+        // Only scenarios whose Scenario.Name matches an entry here are shown in the menu.
+        // Other scenario JSONs remain in the project and can be re-enabled by editing this list.
+        private static readonly HashSet<string> VisibleScenarioNames = new HashSet<string>
+        {
+            "Little Largo Blue Space"
+        };
+
         protected override void OnEnabled()
         {
             base.OnEnabled();
@@ -45,10 +52,17 @@ namespace Glitchers.EcoKnow.Sandbox.Menus
                 Destroy(child.gameObject);
             }
 
-            //Add new buttons
+            //Add new buttons (filtered by VisibleScenarioNames)
+            int displayIndex = 0;
             for (int i = 0; i < scenarioConfigs.Count; i++)
             {
-                AddScenarioToList(i + 1, scenarioConfigs[i]);
+                ScenarioConfig config = scenarioConfigs[i];
+                if (config?.Scenario == null || !VisibleScenarioNames.Contains(config.Scenario.Name))
+                {
+                    continue;
+                }
+                displayIndex++;
+                AddScenarioToList(displayIndex, config);
             }
         }
 

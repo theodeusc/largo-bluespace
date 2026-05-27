@@ -70,6 +70,12 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         private Dictionary<string, Tilemap> _dataTilemaps;
         private Dictionary<string, Tilemap> _visualTilemaps;
 
+        // Static (frame-0 only) variant of the sea tileset. Swapped in by RefreshVisualTilemap
+        // at sea cells where the freshwater data layer is also present (the estuary), because
+        // freshwater renders on top of sea using only frame 0 and cannot cover the extra
+        // alpha that sea's later wave-extension frames paint past the frame-0 silhouette.
+        private TileBase[] _staticSeaTiles;
+
         public void Build(int columns, int rows, float cellScale, float cellGap, Func<int, int, int> getZoneId, Func<int, int, bool> isVoid)
         {
             if (getZoneId == null) throw new ArgumentNullException(nameof(getZoneId));
@@ -108,11 +114,16 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                     continue;
                 }
 
-                TileBase[] tiles = SliceTextureIntoTiles(texture, terrain);
+                TileBase[] tiles = SliceTextureIntoTiles(texture, terrain, animate: terrain == TilesetConstants.Sea);
                 if (tiles == null) continue;
 
                 _tiles[terrain] = tiles;
                 _markerTiles[terrain] = tiles[FullTileIndex] ?? FirstNonNull(tiles);
+
+                if (terrain == TilesetConstants.Sea)
+                {
+                    _staticSeaTiles = SliceTextureIntoTiles(texture, "sea_static", animate: false);
+                }
             }
 
             // Boundary variants ride on a main terrain's data + visual tilemaps; load their sprites
@@ -162,7 +173,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 cleanTex.SetPixels32(cleaned);
                 cleanTex.Apply(updateMipmaps: false, makeNoLongerReadable: false);
 
-                TileBase[] variantTiles = SliceTextureIntoTiles(cleanTex, variantName);
+                TileBase[] variantTiles = SliceTextureIntoTiles(cleanTex, variantName, animate: false);
                 if (variantTiles == null) continue;
                 _tiles[variantName] = variantTiles;
                 variantMasks[variantName] = mask;
@@ -242,7 +253,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 maskedTex.SetPixels32(maskedBlock);
                 maskedTex.Apply(updateMipmaps: false, makeNoLongerReadable: false);
 
-                TileBase[] maskedTiles = SliceTextureIntoTiles(maskedTex, $"{targetTerrain}_voidMasked");
+                TileBase[] maskedTiles = SliceTextureIntoTiles(maskedTex, $"{targetTerrain}_voidMasked", animate: false);
                 if (maskedTiles == null) continue;
                 _voidMaskedTiles[targetTerrain] = maskedTiles;
             }
@@ -261,17 +272,20 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         private const int TileSheetRows = 4;
         private const int TileCount = TileSheetColumns * TileSheetRows;
 
-        // Slices the leftmost (TileSheetColumns × tileSize) region of the texture into a 4×4 grid
-        // of 16 tiles. Index 0 = top-left, index 15 = bottom-right (row-major). Pixel-perfect
-        // settings come from the .meta (filterMode=Point, textureCompression=None on default
-        // platform); this method preserves them by referencing the texture as-is and using
-        // PPU = tileSize so 1 world unit = 1 tile = exactly tileSize source pixels.
+        // Animation frames-per-second used for animated tilesets (currently sea only).
+        private const float AnimatedTileSpeed = 1f;
+
+        // Slices the texture into a 4×4 grid of 16 tiles. Index 0 = top-left, index 15 =
+        // bottom-right (row-major). Pixel-perfect settings come from the .meta
+        // (filterMode=Point, textureCompression=None on default platform); this method
+        // preserves them by referencing the texture as-is and using PPU = tileSize so
+        // 1 world unit = 1 tile = exactly tileSize source pixels.
         //
-        // Identical slicing logic to creator_old/Assets/Scripts/Sandbox/Terrain/DualGridTerrainRenderer.cs
-        // (CreateTilesFromTexture, lines 454-484). For animated tilesets like sea (768×128 with
-        // 6 horizontal frames), the old project routes through CreateAnimatedTilesFromTexture;
-        // this minimal port deliberately takes only the leftmost frame and renders it static.
-        private static TileBase[] SliceTextureIntoTiles(Texture2D texture, string terrain)
+        // When `animate` is true and the texture is wider than one 4×4 block, emits
+        // AnimatedTile per stamp with all frames. Otherwise — including void/masked
+        // variants of sea, which need pixel-exact alpha masking on a single frame —
+        // emits a static Tile from the leftmost frame.
+        private static TileBase[] SliceTextureIntoTiles(Texture2D texture, string terrain, bool animate)
         {
             if (texture.height % TileSheetRows != 0)
             {
@@ -293,12 +307,9 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             }
 
             int frameCount = (texture.width / tileSize) / TileSheetColumns;
-            if (frameCount > 1)
-            {
-                Debug.Log($"[DualGridTerrainRenderer] '{terrain}' tileset has {frameCount} animation frames; rendering frame 0 only (animation not yet supported in this minimal port).");
-            }
+            bool shouldAnimate = animate && frameCount > 1;
 
-            Tile[] tiles = new Tile[TileCount];
+            TileBase[] tiles = new TileBase[TileCount];
             Vector2 pivot = new Vector2(0.5f, 0.5f);
             float ppu = tileSize;
 
@@ -306,24 +317,50 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             {
                 int col = i % TileSheetColumns;
                 int row = i / TileSheetColumns;
-
-                int spriteX = col * tileSize;                        // leftmost frame only
                 int spriteY = (TileSheetRows - 1 - row) * tileSize;  // sprite Y is bottom-up; row 0 = top
 
-                Sprite sprite = Sprite.Create(
-                    texture,
-                    new Rect(spriteX, spriteY, tileSize, tileSize),
-                    pivot,
-                    ppu
-                );
-                sprite.name = $"{terrain}_{i}";
+                if (shouldAnimate)
+                {
+                    Sprite[] frames = new Sprite[frameCount];
+                    for (int f = 0; f < frameCount; f++)
+                    {
+                        int spriteX = (col + f * TileSheetColumns) * tileSize;
+                        Sprite frameSprite = Sprite.Create(
+                            texture,
+                            new Rect(spriteX, spriteY, tileSize, tileSize),
+                            pivot,
+                            ppu
+                        );
+                        frameSprite.name = $"{terrain}_{i}_f{f}";
+                        frames[f] = frameSprite;
+                    }
 
-                Tile tile = ScriptableObject.CreateInstance<Tile>();
-                tile.sprite = sprite;
-                tile.color = Color.white;
-                tile.colliderType = Tile.ColliderType.None;
-                tile.name = $"Tile_{terrain}_{i}";
-                tiles[i] = tile;
+                    AnimatedTile animTile = ScriptableObject.CreateInstance<AnimatedTile>();
+                    animTile.m_AnimatedSprites = frames;
+                    animTile.m_MinSpeed = AnimatedTileSpeed;
+                    animTile.m_MaxSpeed = AnimatedTileSpeed;
+                    animTile.m_TileColliderType = Tile.ColliderType.None;
+                    animTile.name = $"AnimTile_{terrain}_{i}";
+                    tiles[i] = animTile;
+                }
+                else
+                {
+                    int spriteX = col * tileSize;                    // leftmost frame only
+                    Sprite sprite = Sprite.Create(
+                        texture,
+                        new Rect(spriteX, spriteY, tileSize, tileSize),
+                        pivot,
+                        ppu
+                    );
+                    sprite.name = $"{terrain}_{i}";
+
+                    Tile tile = ScriptableObject.CreateInstance<Tile>();
+                    tile.sprite = sprite;
+                    tile.color = Color.white;
+                    tile.colliderType = Tile.ColliderType.None;
+                    tile.name = $"Tile_{terrain}_{i}";
+                    tiles[i] = tile;
+                }
             }
             return tiles;
         }
@@ -493,6 +530,9 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         // boundary halos (any corner void) the tile sprite is swapped: VoidVariants picks a sprite
         // from a separate variant tileset (e.g. sea→sea_void), VoidMasks picks an alpha-masked
         // variant of the terrain's own sprite (e.g. sand clipped to the SeaVoid silhouette).
+        //
+        // Sea has an extra swap to a static variant whenever the freshwater data layer is present
+        // at any of the 4 corners (i.e. the estuary). See _staticSeaTiles for the reason.
         private void RefreshVisualTilemap(string terrain, Tilemap visualTilemap)
         {
             visualTilemap.ClearAllTiles();
@@ -509,6 +549,14 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 _voidMaskedTiles.TryGetValue(terrain, out boundaryTiles);
             }
 
+            TileBase[] estuaryStaticTiles = null;
+            Tilemap freshwaterData = null;
+            if (terrain == TilesetConstants.Sea && _staticSeaTiles != null)
+            {
+                _dataTilemaps.TryGetValue(TilesetConstants.Freshwater, out freshwaterData);
+                if (freshwaterData != null) estuaryStaticTiles = _staticSeaTiles;
+            }
+
             for (int vy = -(_rows - 1); vy <= 1; vy++)
             {
                 for (int vx = 0; vx <= _columns; vx++)
@@ -516,12 +564,30 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                     int idx = SampleAndLookup(dataTilemap, vx, vy, _columns, _rows);
                     if (idx == EmptyTileIndex) continue;
 
-                    TileBase[] activeTiles = (boundaryTiles != null && AnyCornerIsVoid(vx, vy))
-                        ? boundaryTiles
-                        : tiles;
+                    TileBase[] activeTiles;
+                    if (boundaryTiles != null && AnyCornerIsVoid(vx, vy))
+                    {
+                        activeTiles = boundaryTiles;
+                    }
+                    else if (estuaryStaticTiles != null && AnyCornerHasMarker(freshwaterData, vx, vy))
+                    {
+                        activeTiles = estuaryStaticTiles;
+                    }
+                    else
+                    {
+                        activeTiles = tiles;
+                    }
                     visualTilemap.SetTile(new Vector3Int(vx, vy, 0), activeTiles[idx]);
                 }
             }
+        }
+
+        private bool AnyCornerHasMarker(Tilemap data, int vx, int vy)
+        {
+            return Presence(data, vx - 1, vy,     _columns, _rows)
+                || Presence(data, vx,     vy,     _columns, _rows)
+                || Presence(data, vx - 1, vy - 1, _columns, _rows)
+                || Presence(data, vx,     vy - 1, _columns, _rows);
         }
 
         private static int SampleAndLookup(Tilemap data, int vx, int vy, int columns, int rows)
