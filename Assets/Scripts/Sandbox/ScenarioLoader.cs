@@ -4,6 +4,7 @@ using System.Linq;
 using System.Collections.Generic;
 using Newtonsoft.Json;
 using System;
+using Glitchers.EcoKnow.Sandbox.Data;
 
 namespace Glitchers.EcoKnow.Sandbox
 {
@@ -55,6 +56,19 @@ namespace Glitchers.EcoKnow.Sandbox
         public ScenarioConfig LoadedConfig => _loadedConfig;
         public Scenario LastPlayedScenario => _loadedConfig == null ? null : _loadedConfig.Scenario;
 
+        // Briefing sidecars (<scenario>_briefing.json) keyed by Scenario.Name.
+        // Populated as scenarios are discovered; looked up by SandboxUI when the
+        // ObjectivesModal needs richer intro copy than scenario.Description.
+        private readonly Dictionary<string, BriefingData> _briefingsByScenarioName = new Dictionary<string, BriefingData>();
+        public BriefingData LoadedBriefing
+        {
+            get
+            {
+                if (_loadedConfig == null || _loadedConfig.Scenario == null) return null;
+                return _briefingsByScenarioName.TryGetValue(_loadedConfig.Scenario.Name, out BriefingData briefing) ? briefing : null;
+            }
+        }
+
         private const string LogChannel = "[ScenarioLoader]";
 
         private void Awake()
@@ -77,6 +91,9 @@ namespace Glitchers.EcoKnow.Sandbox
                     if (config != null)
                     {
                         Instance._loadedConfig = config;
+                        // Sibling sidecar: <picked-file>_briefing.json next to the chosen scenario.
+                        string pickedPath = (filePaths != null && filePaths.Length > 0) ? filePaths[0] : null;
+                        Instance.TryLoadSidecarBriefingFromFile(pickedPath, config.Scenario?.Name);
                         onSuccess?.Invoke(config.Scenario);
                     }
                 }
@@ -246,6 +263,10 @@ namespace Glitchers.EcoKnow.Sandbox
                             if (config != null)
                             {
                                 _scenarioConfigs.Add(config);
+                                // Sidecar briefing: <asset-name>_briefing under the same
+                                // Resources subfolder. Keyed by Scenario.Name so SandboxUI
+                                // can look it up at modal-init time.
+                                TryLoadSidecarBriefingFromResources(asset.jsonAsset.name, config.Scenario?.Name);
                             }
                         }
                     }
@@ -253,6 +274,52 @@ namespace Glitchers.EcoKnow.Sandbox
             }
 
             return _scenarioConfigs;
+        }
+
+        // Loads <basename>_briefing.json from the Resources/Scenarios folder and
+        // stores it against scenarioName. Silent no-op if the file is missing,
+        // empty, or fails to deserialise.
+        private void TryLoadSidecarBriefingFromResources(string assetBasename, string scenarioName)
+        {
+            if (string.IsNullOrEmpty(assetBasename) || string.IsNullOrEmpty(scenarioName)) return;
+            try
+            {
+                TextAsset briefingAsset = Resources.Load<TextAsset>($"Scenarios/{assetBasename}_briefing");
+                if (briefingAsset == null || string.IsNullOrEmpty(briefingAsset.text)) return;
+                BriefingData briefing = JsonConvert.DeserializeObject<BriefingData>(briefingAsset.text);
+                if (briefing != null)
+                {
+                    _briefingsByScenarioName[scenarioName] = briefing;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"{LogChannel} Failed to load sidecar briefing for {assetBasename}: {ex.Message}");
+            }
+        }
+
+        // Loads a sibling <basename>_briefing.json next to a scenario file picked
+        // via the load dialog. Same silent-fail policy as the Resources path.
+        private void TryLoadSidecarBriefingFromFile(string scenarioFilePath, string scenarioName)
+        {
+            if (string.IsNullOrEmpty(scenarioFilePath) || string.IsNullOrEmpty(scenarioName)) return;
+            try
+            {
+                string dir = System.IO.Path.GetDirectoryName(scenarioFilePath);
+                string basename = System.IO.Path.GetFileNameWithoutExtension(scenarioFilePath);
+                if (string.IsNullOrEmpty(dir) || string.IsNullOrEmpty(basename)) return;
+                string briefingPath = System.IO.Path.Combine(dir, $"{basename}_briefing.json");
+                if (!System.IO.File.Exists(briefingPath)) return;
+                BriefingData briefing = JsonConvert.DeserializeObject<BriefingData>(System.IO.File.ReadAllText(briefingPath));
+                if (briefing != null)
+                {
+                    _briefingsByScenarioName[scenarioName] = briefing;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogWarning($"{LogChannel} Failed to load sidecar briefing from {scenarioFilePath}: {ex.Message}");
+            }
         }
         #endregion
 

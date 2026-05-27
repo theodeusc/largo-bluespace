@@ -45,7 +45,9 @@ namespace Glitchers.EcoKnow.Sandbox.UI
         public void Init(Scenario scenario, EntityManager entityManager, WinCondition[] winConditions, PlayerInventory playerInventory)
         {
             //Initialise our components
-            _objectivesModal?.Init(scenario.Name, scenario.Author, scenario.Description, scenario.CoverImageBase64);
+            // Prefer the briefing sidecar if one is loaded; falls back to scenario.Description otherwise.
+            string introDescription = BriefingFormatter.Compose(scenario, ScenarioLoader.Instance?.LoadedBriefing);
+            _objectivesModal?.Init(scenario.Name, scenario.Author, introDescription, scenario.CoverImageBase64);
             _entityPanel?.Init(entityManager.GetEntityTypeList());
             _objectivePanel?.Init(winConditions, entityManager);
             _toolPanel?.Init();
