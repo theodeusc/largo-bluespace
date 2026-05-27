@@ -41,6 +41,11 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         private float _seedOffsetX;
         private float _seedOffsetY;
 
+        // True when textures are owned by an ElevationMapAsset (the project-asset
+        // form of the cache). Dispose is a no-op in that case — destroying the
+        // textures would clobber the persisted asset's sub-assets.
+        private bool _assetBacked;
+
         private Texture2D _altitudeTexture;
         public Texture2D AltitudeTexture => _altitudeTexture;
 
@@ -55,6 +60,81 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
 
         public int Columns => _columns;
         public int Rows => _rows;
+
+        // Resources-relative path under Assets/_EcoKnow/Resources/. Keep the leading
+        // segment in sync with AssetFolder below or asset save/load will mismatch.
+        private const string ResourcesSubfolder = "ElevationMaps";
+        private const string AssetFolder = "Assets/_EcoKnow/Resources/" + ResourcesSubfolder;
+
+        /// <summary>
+        /// Factory used by gameplay code. Looks up the pre-baked
+        /// <see cref="ElevationMapAsset"/> for this scenario; if missing, generates
+        /// fresh and (in-editor only) saves the result as a project asset for next
+        /// time. The first run for a given (mapName, seed) costs the full
+        /// Generate() pass; subsequent runs are a Resources.Load.
+        /// </summary>
+        public static ElevationMap CreateForScenario(string mapName, int seed, GridManager gm)
+        {
+            string key = SanitizeKey(mapName) + "_" + seed;
+            string resourcesPath = ResourcesSubfolder + "/" + key;
+            ElevationMapAsset asset = Resources.Load<ElevationMapAsset>(resourcesPath);
+
+            if (asset != null)
+            {
+                Vector2 expected = gm.GridSize;
+                if (asset.Columns == (int)expected.x && asset.Rows == (int)expected.y)
+                {
+                    Debug.Log($"{LogChannel} Loaded pre-baked asset Resources/{resourcesPath}.asset");
+                    return FromAsset(asset, seed);
+                }
+                Debug.LogWarning($"{LogChannel} Asset Resources/{resourcesPath}.asset dimensions ({asset.Columns}x{asset.Rows}) don't match current grid ({(int)expected.x}x{(int)expected.y}) — regenerating. Delete the stale .asset before committing.");
+            }
+
+            ElevationMap em = new ElevationMap();
+            em.Generate(gm, seed);
+
+#if UNITY_EDITOR
+            SaveAsAsset(em, key);
+            Debug.Log($"{LogChannel} Generated and saved {AssetFolder}/{key}.asset — commit this file so other devs and shipping builds skip terrain regen.");
+#else
+            Debug.LogWarning($"{LogChannel} No pre-baked asset for '{key}' in this build — generated at runtime (~1M Perlin samples). Bake the asset in-editor and rebuild to fix.");
+#endif
+            return em;
+        }
+
+        public static ElevationMap FromAsset(ElevationMapAsset asset, int seed)
+        {
+            ElevationMap em = new ElevationMap();
+            em._columns = asset.Columns;
+            em._rows = asset.Rows;
+            em._seedOffsetX = (seed % 1000) * 0.7f;
+            em._seedOffsetY = (seed % 1000) * 1.3f;
+            em._heightSampler = new WorldHeightSampler(seed);
+
+            em._isSea = UnflattenBoolGrid(asset.IsSeaFlat, asset.Columns, asset.Rows);
+            em._isFreshwater = UnflattenBoolGrid(asset.IsFreshwaterFlat, asset.Columns, asset.Rows);
+            em._isOverflow = UnflattenBoolGrid(asset.IsOverflowFlat, asset.Columns, asset.Rows);
+            em._isFreshOnSand = UnflattenBoolGrid(asset.IsFreshOnSandFlat, asset.Columns, asset.Rows);
+            em._altitudes = UnflattenFloatGrid(asset.AltitudesFlat, asset.Columns, asset.Rows);
+
+            em._altitudeTexture = asset.AltitudeTexture;
+            em._overflowTexture = asset.OverflowTexture;
+            em._freshSandTexture = asset.FreshSandTexture;
+
+            // Distance fields are only needed inside the texture-bake loops in
+            // GenerateTexture/GenerateOverflowTexture/GenerateFreshSandTexture and
+            // are discarded after Generate() returns. They stay null on the asset
+            // path — nothing public reads them.
+
+            em._assetBacked = true;
+            return em;
+        }
+
+        private static string SanitizeKey(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return "unknown";
+            return raw.Replace('/', '_').Replace('\\', '_').Replace(':', '_').Replace('.', '_');
+        }
 
         public void Generate(GridManager gm, int seed)
         {
@@ -115,6 +195,10 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
 
         public void Dispose()
         {
+            // No-op when the textures are owned by a persisted ElevationMapAsset —
+            // destroying them would clobber the asset's sub-assets on disk.
+            if (_assetBacked) return;
+
             if (_altitudeTexture != null)
             {
                 Object.Destroy(_altitudeTexture);
@@ -584,6 +668,126 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                         maxDist = landDist[c, r];
             return maxDist < 0.001f ? 1f : maxDist;
         }
+
+        // ---- Asset (ElevationMapAsset) helpers ----
+
+        private static byte[] FlattenBoolGrid(bool[,] grid)
+        {
+            if (grid == null) return System.Array.Empty<byte>();
+            int cols = grid.GetLength(0); int rows = grid.GetLength(1);
+            byte[] flat = new byte[cols * rows];
+            int i = 0;
+            for (int y = 0; y < rows; y++)
+                for (int x = 0; x < cols; x++)
+                    flat[i++] = grid[x, y] ? (byte)1 : (byte)0;
+            return flat;
+        }
+
+        private static bool[,] UnflattenBoolGrid(byte[] flat, int cols, int rows)
+        {
+            bool[,] g = new bool[cols, rows];
+            if (flat == null) return g;
+            int i = 0;
+            for (int y = 0; y < rows; y++)
+                for (int x = 0; x < cols; x++)
+                    g[x, y] = i < flat.Length && flat[i++] != 0;
+            return g;
+        }
+
+        private static float[] FlattenFloatGrid(float[,] grid)
+        {
+            if (grid == null) return System.Array.Empty<float>();
+            int cols = grid.GetLength(0); int rows = grid.GetLength(1);
+            float[] flat = new float[cols * rows];
+            int i = 0;
+            for (int y = 0; y < rows; y++)
+                for (int x = 0; x < cols; x++)
+                    flat[i++] = grid[x, y];
+            return flat;
+        }
+
+        private static float[,] UnflattenFloatGrid(float[] flat, int cols, int rows)
+        {
+            float[,] g = new float[cols, rows];
+            if (flat == null) return g;
+            int i = 0;
+            for (int y = 0; y < rows; y++)
+                for (int x = 0; x < cols; x++)
+                    g[x, y] = i < flat.Length ? flat[i++] : 0f;
+            return g;
+        }
+
+#if UNITY_EDITOR
+        // Editor-only — persists the just-generated ElevationMap to a project asset
+        // at AssetFolder/{key}.asset. Textures are added as sub-assets so the whole
+        // bake lives in one .asset file. Commit the file so cold launches for
+        // teammates and the shipping build skip the regen.
+        private static void SaveAsAsset(ElevationMap em, string key)
+        {
+            EnsureAssetFolder();
+
+            ElevationMapAsset asset = ScriptableObject.CreateInstance<ElevationMapAsset>();
+            asset.name = key;
+
+            // Rename textures so the sub-asset names are stable and readable.
+            if (em._altitudeTexture != null) em._altitudeTexture.name = "AltitudeMap";
+            if (em._overflowTexture != null) em._overflowTexture.name = "OverflowMap";
+            if (em._freshSandTexture != null) em._freshSandTexture.name = "FreshSandMap";
+
+            asset.Populate(
+                em._columns, em._rows, em.SeedFromOffsets(),
+                FlattenBoolGrid(em._isSea),
+                FlattenBoolGrid(em._isFreshwater),
+                FlattenBoolGrid(em._isOverflow),
+                FlattenBoolGrid(em._isFreshOnSand),
+                FlattenFloatGrid(em._altitudes),
+                em._altitudeTexture, em._overflowTexture, em._freshSandTexture);
+
+            string assetPath = AssetFolder + "/" + key + ".asset";
+            UnityEditor.AssetDatabase.CreateAsset(asset, assetPath);
+
+            if (em._altitudeTexture != null) UnityEditor.AssetDatabase.AddObjectToAsset(em._altitudeTexture, asset);
+            if (em._overflowTexture != null) UnityEditor.AssetDatabase.AddObjectToAsset(em._overflowTexture, asset);
+            if (em._freshSandTexture != null) UnityEditor.AssetDatabase.AddObjectToAsset(em._freshSandTexture, asset);
+
+            UnityEditor.AssetDatabase.SaveAssets();
+            UnityEditor.AssetDatabase.Refresh();
+
+            // After persistence the textures are sub-assets owned by the .asset file
+            // on disk. Flag the in-memory ElevationMap so Cleanup doesn't destroy them
+            // out from under the asset.
+            em._assetBacked = true;
+        }
+
+        private static void EnsureAssetFolder()
+        {
+            // Create Assets/_EcoKnow/Resources and Assets/_EcoKnow/Resources/ElevationMaps
+            // on demand. AssetDatabase.CreateFolder is the editor's preferred path
+            // creator (versus Directory.CreateDirectory, which doesn't refresh).
+            if (!UnityEditor.AssetDatabase.IsValidFolder("Assets/_EcoKnow"))
+            {
+                UnityEditor.AssetDatabase.CreateFolder("Assets", "_EcoKnow");
+            }
+            if (!UnityEditor.AssetDatabase.IsValidFolder("Assets/_EcoKnow/Resources"))
+            {
+                UnityEditor.AssetDatabase.CreateFolder("Assets/_EcoKnow", "Resources");
+            }
+            if (!UnityEditor.AssetDatabase.IsValidFolder(AssetFolder))
+            {
+                UnityEditor.AssetDatabase.CreateFolder("Assets/_EcoKnow/Resources", ResourcesSubfolder);
+            }
+        }
+
+        // The seed isn't kept as a member — it's encoded into _seedOffsetX/Y. Recover
+        // it for asset writeback. Matches the inverse of the Generate() encoding:
+        // _seedOffsetX = (seed % 1000) * 0.7f.
+        private int SeedFromOffsets()
+        {
+            return Mathf.RoundToInt(_seedOffsetX / 0.7f);
+        }
+#endif
+
+        // ---- /Asset helpers ----
 
         private float SampleDistanceField(float[,] field, float gc, float gr)
         {

@@ -21,7 +21,11 @@ namespace Glitchers.EcoKnow.Sandbox.UI
 
         public Action onSellSuccess;
 
-        private InventoryRow[] _inventoryRowList => _inventoryRowContainer == null ? null : _inventoryRowContainer.GetComponentsInChildren<InventoryRow>();
+        // Cached row array, repopulated whenever RefreshInventory rebuilds the row instances.
+        // Property avoids per-access GetComponentsInChildren array allocations on hot paths
+        // like OnUnitsAdjusted (fired on every slider tick).
+        private InventoryRow[] _cachedRows;
+        private InventoryRow[] _inventoryRowList => _cachedRows;
 
         private void Start()
         {
@@ -174,8 +178,16 @@ namespace Glitchers.EcoKnow.Sandbox.UI
 
             if (_inventoryRowPrefab == null)
             {
+                _cachedRows = Array.Empty<InventoryRow>();
                 return;
             }
+
+            // Track newly-instantiated rows in a list rather than walking the hierarchy at
+            // the end — the foreach above only marks the old rows for destruction (Unity
+            // defers Destroy to end-of-frame), so a GetComponentsInChildren call now would
+            // include the soon-dead old rows alongside the new ones, leaving
+            // MissingReference refs in the cache.
+            List<InventoryRow> created = new List<InventoryRow>();
 
             PlayerInventory inventory = SandboxManager.Instance.PlayerInventory;
             if (inventory != null)
@@ -194,9 +206,12 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                     if (row != null)
                     {
                         row.Init(item.Item1, item.Item2, delegate { OnUnitsAdjusted(); } );
+                        created.Add(row);
                     }
                 }
             }
+
+            _cachedRows = created.ToArray();
 
             if (this.GetComponent<RectTransform>() != null)
             {

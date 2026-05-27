@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
@@ -19,8 +20,12 @@ namespace Glitchers.EcoKnow.Sandbox.UI
 
         [SerializeField] private bool _displayActive = true;
 
-        private ResultsWidget[] _resultWidgets => this.GetComponentsInChildren<ResultsWidget>();
-        public ResultsWidget ActiveWidget => _resultWidgets == null ? null : _resultWidgets.FirstOrDefault(x => x.IsActive);
+        // Cached widget array; refreshed in Init() after the widget instances are spawned.
+        // The previous property hit GetComponentsInChildren on every access and was called
+        // multiple times per UpdateResultsTrack pass.
+        private ResultsWidget[] _cachedWidgets = Array.Empty<ResultsWidget>();
+        private ResultsWidget[] _resultWidgets => _cachedWidgets;
+        public ResultsWidget ActiveWidget => _cachedWidgets == null ? null : _cachedWidgets.FirstOrDefault(x => x.IsActive);
 
         private const string LogChannel = "[ResultsTracker]";
 
@@ -50,11 +55,20 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             //fires — otherwise UpdateActiveWidgetTier / UpdateActiveWidget run on round 0
             //before the coroutine wakes and silently no-op, leaving the widget showing its
             //prefab default text ("999999" / "New Text").
+            //
+            //Track instances explicitly into the cache list rather than calling
+            //GetComponentsInChildren at the end — the foreach above only marks the old
+            //widgets for destruction (Unity defers Destroy to end-of-frame), so a hierarchy
+            //walk now would return both the new widgets AND the soon-dead old ones,
+            //leaving MissingReference refs in the cache.
+            List<ResultsWidget> created = new List<ResultsWidget>(_maxResultsWidgets);
             for (int i = 0; i < _maxResultsWidgets; i++)
             {
                 ResultsWidget widget = Instantiate(_resultsWidgetPrefab, _resultsContainer);
                 widget.SetState(i == 0 ? (int)ResultsWidget.State.ACTIVE : (int)ResultsWidget.State.FUTURE);
+                created.Add(widget);
             }
+            _cachedWidgets = created.ToArray();
 
             StartCoroutine(SetupTrack(results, currentRound, maxRounds));
         }

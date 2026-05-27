@@ -119,7 +119,10 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
         public Vector2 CellScale => new Vector2(cellWidth, cellHeight);
         public Vector2 CellSize => GetActualCellSize();
         public float CellGap => cellGap;
-        public int TotalCells => GetComponentsInChildren<Cell>().Length;
+        // Cached at the end of SetupGrid — cells are spawned once per scenario load.
+        // Previously walked the hierarchy via GetComponentsInChildren on every access.
+        private int _totalCells;
+        public int TotalCells => _totalCells;
         public Vector2 GridSize => new Vector2(columns, rows);
         public Transform CellContainerTransform => cellContainer;
         public GridCoords Coords => new GridCoords(cellWidth, cellGap);
@@ -291,6 +294,16 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
             bool hideZoneColor = _terrainRenderer != null;
 
+            // Deactivate cellContainer for the instantiation pass so that newly-spawned
+            // cells don't fire Awake/OnEnable mid-loop. While the container is inactive,
+            // Cell.Init runs and deactivates _cellTokenContainer (the FlowLayoutGroup
+            // holding 7 dead nested prefab_Token instances). When we reactivate the
+            // container, the cell subtree comes alive — but the deactivated TokenContainer
+            // stays dormant, so its Awake + the 7 Tokens' Awakes + the FlowLayoutGroup's
+            // OnEnable layout rebuild never fire. That's the bulk of the per-cell cost.
+            bool wasActive = cellContainer.gameObject.activeSelf;
+            cellContainer.gameObject.SetActive(false);
+
             //Generate new ones
             for (int y = 0; y < rows; y++)
             {
@@ -317,10 +330,21 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
                 }
             }
 
+            // Reactivate the container — all cell subtree Awakes fire en masse here, but
+            // the previously-deactivated TokenContainers stay dormant.
+            cellContainer.gameObject.SetActive(wasActive);
+
             if (_terrainRenderer != null)
             {
                 _terrainRenderer.Build(columns, rows, cellWidth, cellGap, GetZoneType, IsVoid);
             }
+
+            // Cache the final cell count so the TotalCells property doesn't walk the hierarchy.
+            int spawned = 0;
+            for (int y = 0; y < rows; y++)
+            for (int x = 0; x < columns; x++)
+                if (cellList[x, y] != null) spawned++;
+            _totalCells = spawned;
 
             gridCamera.Init(this);
         }

@@ -18,7 +18,24 @@ namespace Glitchers.EcoKnow.Sandbox.Menus
         [SerializeField] private Button_PlayerSelect _playerButton_Four;
 
         [SerializeField] private Transform _playerButtonContainer;
-        private Button_PlayerSelect[] _playerButtonList => _playerButtonContainer == null ? null : _playerButtonContainer.GetComponentsInChildren<Button_PlayerSelect>().OrderBy(x => x.transform.GetSiblingIndex()).ToArray(); //Just in case this for some reason does not return child order
+
+        // Cached, sibling-index-sorted button array. Children are inspector-set on the
+        // prefab — sorted once on first access. Previous getter ran GetComponentsInChildren
+        // + LINQ OrderBy().ToArray() on every read; AddListeners/RemoveListeners/Refresh
+        // each hit it multiple times.
+        private Button_PlayerSelect[] _cachedPlayerButtons;
+        private Button_PlayerSelect[] _playerButtonList
+        {
+            get
+            {
+                if (_cachedPlayerButtons != null) return _cachedPlayerButtons;
+                if (_playerButtonContainer == null) return null;
+                Button_PlayerSelect[] found = _playerButtonContainer.GetComponentsInChildren<Button_PlayerSelect>();
+                System.Array.Sort(found, (a, b) => a.transform.GetSiblingIndex().CompareTo(b.transform.GetSiblingIndex()));
+                _cachedPlayerButtons = found;
+                return _cachedPlayerButtons;
+            }
+        }
 
         protected override void OnEnabled()
         {

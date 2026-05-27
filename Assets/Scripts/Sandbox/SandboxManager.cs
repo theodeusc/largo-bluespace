@@ -139,6 +139,12 @@ namespace Glitchers.EcoKnow.Sandbox
 
         void Update()
         {
+            // Gate input on full scenario wire-up: SetupAndRunScenario now yields between
+            // stages, so for a few frames _gridManager / cellList may be mid-build even
+            // though the scene is live. _currentScenario is set only at the tail of the
+            // coroutine after all heavy stages complete.
+            if (_currentScenario == null) return;
+
             if ((_sandboxUI != null) && (!_sandboxUI.IsFocused()))
             {
                 _gridManager?.HandleInput();
@@ -204,19 +210,26 @@ namespace Glitchers.EcoKnow.Sandbox
                 _gridManager?.EnableGrid();
                 _gridManager?.SetupGrid(gridDef);
 
+                // Yield between heavy stages so the engine can service rendering and the
+                // player sees frames instead of a freeze. Order dependencies preserved:
+                // SetupGrid -> ElevationMap.Generate -> AddEntitiesToGrid -> RegionCompute.
+                yield return null;
+
                 //Build elevation map. Provides per-cell water classification and a shore-distance
                 //texture consumed by the EcoKnow/Water shader (via WaterTintController) and any
                 //future water-rendering features (read it via SandboxManager.ElevationMap).
+                //Pre-baked as an ElevationMapAsset under Assets/_EcoKnow/Resources/ElevationMaps
+                //and keyed by (mapFileName, seed). First in-editor run generates and commits the
+                //asset; subsequent runs (and shipping builds) just Resources.Load it.
                 if (_gridManager != null)
                 {
                     _elevationMap?.Dispose();
-                    _elevationMap = new ElevationMap();
-                    _elevationMap.Generate(_gridManager, scenario.Seed);
+                    _elevationMap = ElevationMap.CreateForScenario(scenario.Map.fileName, scenario.Seed, _gridManager);
 
                     //Reset water material colours to their authored defaults (so tints from the
-                    //previous scenario don't carry over) and bind the freshly generated
-                    //altitude map + bathymetry parameters to the seawater / freshwater material
-                    //instances. Future entity-count-driven tinting calls into the same controller.
+                    //previous scenario don't carry over) and bind the altitude map + bathymetry
+                    //parameters to the seawater / freshwater material instances. Future
+                    //entity-count-driven tinting calls into the same controller.
                     if (_waterTintController != null)
                     {
                         _waterTintController.ResetToDefaults();
@@ -224,7 +237,11 @@ namespace Glitchers.EcoKnow.Sandbox
                     }
                 }
 
+                yield return null;
+
                 _entityManager?.AddEntitiesToGrid(gridDef, _gridManager);
+
+                yield return null;
 
                 // Region-wide compute: one-shot region build at scenario load when the toggle is on.
                 // After Initialize each region has a single compute cell holding the region's total
@@ -254,6 +271,8 @@ namespace Glitchers.EcoKnow.Sandbox
                     // are skipped so their state stays zero — they read freshwater via ResolveCell.
                     ApplyZoneBaselines(scenario);
                 }
+
+                yield return null;
 
                 _currentScenario = scenario;
 

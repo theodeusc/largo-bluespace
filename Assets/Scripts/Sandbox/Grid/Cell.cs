@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using Glitchers.EcoKnow.Sandbox.Grid.Regions;
@@ -51,6 +52,11 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
         private int _row;
         private int _column;
         private bool _mouseOver;
+
+        // Cached token array — populated by SetupEntityTokens, cleared by
+        // ClearEntityTokens. Lets UpdateTokens skip GetComponentsInChildren and the
+        // OrderByDescending().ToArray() allocation on the per-entity-change hot path.
+        private Cell_Token[] _cachedTokens = Array.Empty<Cell_Token>();
 
         private const string LogChannel = "[Cell]";
 
@@ -231,6 +237,8 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
             {
                 Destroy(child.gameObject);
             }
+
+            _cachedTokens = Array.Empty<Cell_Token>();
         }
 
         public void SetupEntityTokens()
@@ -273,6 +281,10 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
                     token.SetVisible(cellEntities[i].Population > 0);
                 }
 
+                // Cache the just-instantiated token instances so UpdateTokens
+                // doesn't walk the hierarchy on every per-frame refresh.
+                _cachedTokens = _cellTokenContainer.GetComponentsInChildren<Cell_Token>(true);
+
                 UpdateTokenSpacing();
             }
         }
@@ -295,23 +307,26 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
             if ((entityList != null) && (entityManager != null))
             {
-                Cell_Token[] tokens = _cellTokenContainer.GetComponentsInChildren<Cell_Token>(true);
-                CellEntity[] orderedEntities = entityList.OrderByDescending(x => x.Population).ThenByDescending(x => x.CurrentState).ToArray();
+                // Sort the caller-owned array in place (FilterHiddenEntities always
+                // returns a fresh array, so this is safe). Avoids the
+                // OrderByDescending().ToArray() LINQ allocation on every call.
+                Array.Sort(entityList, CompareEntitiesForDisplay);
 
-                if (tokens.Length > 0)
+                Cell_Token[] tokens = _cachedTokens;
+                if (tokens != null && tokens.Length > 0)
                 {
-                    for (int i = 0; i < orderedEntities.Length; i++)
+                    for (int i = 0; i < entityList.Length; i++)
                     {
-                        int totalPopulation = entityManager.GetTotalPopulationOfEntityType(orderedEntities[i].Index);
-                        Cell_Token token = tokens.FirstOrDefault(x => x.Index == orderedEntities[i].Index); // Make sure we match before adjusting any numbers
+                        int totalPopulation = entityManager.GetTotalPopulationOfEntityType(entityList[i].Index);
+                        Cell_Token token = FindTokenByIndex(tokens, entityList[i].Index); // Match before adjusting any numbers
                         if (token != null)
                         {
-                            token.UpdatePopulation(orderedEntities[i].Population, totalPopulation, orderedEntities[i].CurrentState);
+                            token.UpdatePopulation(entityList[i].Population, totalPopulation, entityList[i].CurrentState);
                             token.transform.SetSiblingIndex(i);
 
                             //We only want to set visible once population has increased
                             //We never set invisible at zero population, only extinct
-                            if (orderedEntities[i].Population > 0)
+                            if (entityList[i].Population > 0)
                             {
                                 token.SetVisible(true);
                             }
@@ -321,6 +336,22 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
                 UpdateTokenSpacing();
             }
+        }
+
+        private static int CompareEntitiesForDisplay(CellEntity a, CellEntity b)
+        {
+            int popCmp = b.Population.CompareTo(a.Population);
+            if (popCmp != 0) return popCmp;
+            return ((int)b.CurrentState).CompareTo((int)a.CurrentState);
+        }
+
+        private static Cell_Token FindTokenByIndex(Cell_Token[] tokens, int index)
+        {
+            for (int i = 0; i < tokens.Length; i++)
+            {
+                if (tokens[i] != null && tokens[i].Index == index) return tokens[i];
+            }
+            return null;
         }
 
         private void UpdateTokenSpacing()

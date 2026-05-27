@@ -51,6 +51,11 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         private const int EmptyTileIndex = 12;
         private const int FullTileIndex = 6;
 
+        // Cached shader property ID for _OverlayTex. Resolved once per process; cheaper
+        // than the string-keyed GetTexture overload and lets us pair with HasProperty
+        // to skip materials whose shader (e.g. EcoKnow/Water) doesn't declare it.
+        private static readonly int OverlayTexPropertyId = Shader.PropertyToID("_OverlayTex");
+
         // Within-layer z-step keeps adjacent terrains on the same sortingOrder from z-fighting.
         // Per-layer z-step is strictly larger than (max-within-layer-rank) * WithinLayerZStep so
         // layers never overlap in z. Both constants live on TerrainPriority so non-terrain
@@ -440,12 +445,17 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
 
             // Force pixel-perfect sampling on the overlay texture. The import meta
             // ships with these settings, but enforcing them at runtime guards against
-            // drift if someone re-imports with different defaults.
-            Texture overlay = mat.GetTexture("_OverlayTex");
-            if (overlay != null)
+            // drift if someone re-imports with different defaults. Water materials
+            // (EcoKnow/Water shader) don't have _OverlayTex — gate the lookup so we
+            // don't log a warning for them every frame the renderer rebuilds.
+            if (mat.HasProperty(OverlayTexPropertyId))
             {
-                overlay.wrapMode = TextureWrapMode.Repeat;
-                overlay.filterMode = FilterMode.Point;
+                Texture overlay = mat.GetTexture(OverlayTexPropertyId);
+                if (overlay != null)
+                {
+                    overlay.wrapMode = TextureWrapMode.Repeat;
+                    overlay.filterMode = FilterMode.Point;
+                }
             }
         }
 
