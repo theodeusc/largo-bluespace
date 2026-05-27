@@ -45,10 +45,15 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                 _maxResultsWidgets = SandboxManager.Instance.MaxRounds;
             }
 
-            //Instantiate new ones
+            //Instantiate new ones. Set initial state inline (not just in the post-frame
+            //coroutine) so ActiveWidget is non-null by the time the first OnNewRoundStarted
+            //fires — otherwise UpdateActiveWidgetTier / UpdateActiveWidget run on round 0
+            //before the coroutine wakes and silently no-op, leaving the widget showing its
+            //prefab default text ("999999" / "New Text").
             for (int i = 0; i < _maxResultsWidgets; i++)
             {
                 ResultsWidget widget = Instantiate(_resultsWidgetPrefab, _resultsContainer);
+                widget.SetState(i == 0 ? (int)ResultsWidget.State.ACTIVE : (int)ResultsWidget.State.FUTURE);
             }
 
             StartCoroutine(SetupTrack(results, currentRound, maxRounds));

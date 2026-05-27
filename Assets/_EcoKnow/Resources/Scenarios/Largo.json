@@ -4,7 +4,7 @@
   "Scenario": {
     "Name": "Largo",
     "Author": "EcoKnow",
-    "Description": "Hand-authored 80x40 catchment-style water test scenario based on the Largo geographical map: two 2-tile-wide freshwater rivers descend from the north, merge into a single river that first sweeps east and then runs south to a 2-tile-wide sand band wrapping the bay in a crescent. A separate 1-tile-wide tributary descends through the right-side crops region: it enters at (col 67, row 9), L-elbow staircases southwest down to (col 62, row 16), then runs straight south at col 62 through to the bay, passing through 2 estuary cells over the sand band and discharging via 2 river-mouth cells into the seawater. The 1-tile-wide channel uses L-elbow placement at every direction change so the dual-grid autotiler never selects a diagonal-only tile (no pair of freshwater-bearing cells is diagonally adjacent without an orthogonal connector). The grass area between the central voids and the new tributary (rows 22-27, cols 49-61) and the small grass patches near the new tributary (rows 20-21, cols 57-61) have been converted to crops to give the new tributary visual breathing room. The left golf field (cols 0-20, rows 17-21) and the right golf field (cols 75-78, rows 15-21) remain. Below the sand band sits the seawater bay (also crescent-shaped). Two 3x3 Overflow patches (zone 8) sit in the bay: the first at cols 48-50 / rows 31-33 — directly below the void/crops land boundary at col 47-48, with one buffer seawater cell (51, 33) separating it from the right-side sand at (52, 33); the second at cols 31-33 / rows 31-33 — sharing the first patch's top row, three cells west of the main river-mouth at col 36 and four rows south of the upper sand band at row 27 (chebyshev-4 from the nearest sand, giving a wider buffer that suits the parallel sand edge). Overflow is a logical marker, not a renderable terrain: cells render as ordinary seawater, and the brown tint is produced by ElevationMap baking a separate overflow distance field that EK_Water samples on the sea branch. Freshwater renders over Soil; seawater renders over Sand (per TerrainPriority.ZoneTerrainStacks). The Freshwater terrain reuses a duplicate of the seawater tileset until a dedicated freshwater tileset exists. SOURCE OF TRUTH: Map_Largo.csv (zone definitions + tile layout) and the largo_*.csv matrix files (one per zone). This JSON is a snapshot of those sources; regenerate it if the source CSVs change.",
+    "Description": "Over centuries the waters of Largo Bay have been utilised as a resource (whether for commerce or recreation) yet have been gradually contaminated by industry and agriculture on the land. Today agricultural runoff is compounded by sewage and the significant problem of litter, regarded by the community as ‘a hazard’, and the plastics and polystyrene that wash up on the beach is much worse after a storm. The Lower Largo community hope the wastewater treatment facility will mean they ‘meet bathing water quality standards completely’, ensuring the water of Largo Bay would not ‘potentially make [them] seriously ill’. As well as the benefit to the human community, there is a strong desire to ensure a healthy environment for the non-human visitors to these waters: oysters, seals, and seagrass.",
     "CoverImageBase64": "",
     "Rounds": 10,
     "ActionsPerRound": 2,
@@ -32,7 +32,8 @@
         "DisplayAsPollutionTier": true,
         "LowPollutionMax": 1.0e14,
         "MedPollutionMax": 3.0e14,
-        "IsAggregatePollutionDisplay": true
+        "IsAggregatePollutionDisplay": true,
+        "DisplayName": "Water Pollution"
       },
       {
         "ID": "eColi_agri",
@@ -201,7 +202,7 @@
     "WinConditions": [
       {
         "Title": "Water Pollution Under Control",
-        "Description": "Bring catchment-wide water pollution down to LOW by the final round. Aggregates every pollutant axis — eColi, phosphate, sediment — so any one running HIGH fails the check. Treatment is the only structural lever once late-round additions ramp up.",
+        "Description": "Bring catchment-wide water pollution down to LOW by the final round. Treatment is the only structural lever once late-round additions ramp up.",
         "TypeIndex": 0,
         "TargetIndex": 0,
         "LowerLimit": 0.0,
@@ -13495,8 +13496,8 @@
     "PickLitterReductionPerAction": 15,
     "LoseConditions": [
       {
-        "Title": "Outbreak of Illness",
-        "Description": "Three sick harvests is too many. Fishing in contaminated seawater spreads illness fast — wait for treatment to clear the bay before harvesting again.",
+        "Title": "Dirty-Water Sickness",
+        "Description": "Eating oysters from polluted water makes people sick. Three sicknesses ends the game — always check the aggregate tier before fishing.",
         "TypeIndex": 1,
         "TargetIndex": 0,
         "LowerLimit": 3.0,

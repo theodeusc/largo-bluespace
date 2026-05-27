@@ -69,6 +69,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             _modifyCellManager.onExitModifyMode += OnExitModifyMode;
             _modifyCellManager.onModifySuccess += OnModifySuccess;
             _inventoryModal.onSellSuccess += OnSellSuccess;
+            if (_toolPanel != null) _toolPanel.onActionPerformed += OnToolPanelActionPerformed;
 
             //Subscribe to other events
             if (entityManager != null)
@@ -158,14 +159,17 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             _modifyCellManager?.ResetLimits();
 
             // Refresh currency / AP / inventory labels after every action so paths that don't
-            // go through OnSellSuccess or OnModifySuccess (e.g. WaterGameActionPanel's Fish /
-            // Pick Litter / Fundraise / Buy Treatment) still see updated counters immediately.
+            // go through OnSellSuccess or OnModifySuccess (e.g. WaterGameActions.DoFish /
+            // DoPickLitter / Fundraise / Buy Treatment) still see updated counters immediately.
             // Idempotent — paths that already refreshed inventories prior to OnActionCompleted
             // just re-set the same label values.
             RefreshInventories();
             // Sickness is mutated via raw PlayerInventory.AddItem (no onItemSold/Bought event),
             // so the HUD refresh has to be driven from here rather than reacting to an event.
             RefreshSicknessIndicator();
+            // ToolPanel may be displayed for an entity whose action just consumed AP or
+            // tripped a per-turn flag — re-evaluate its button interactability now.
+            _toolPanel?.RefreshIfShowing();
         }
         #endregion
 
@@ -189,6 +193,14 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             }
 
             _toolPanel?.HideToolbar();
+        }
+
+        // Direct-action button on ToolPanel was just clicked. Deselect the entity so the
+        // EntityPanel's selection state resets — otherwise the next click on the same row
+        // is interpreted as a toggle-off and the player has to click twice to reopen.
+        private void OnToolPanelActionPerformed()
+        {
+            _entityPanel?.DeselectEntity();
         }
 
         private void OnEntityUpdated(int column, int row, int id)
@@ -228,7 +240,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             SandboxManager mgr = SandboxManager.Instance;
             if (mgr == null || mgr.PlayerInventory == null) return;
 
-            int current = mgr.PlayerInventory.GetAmountHeld(WaterGameActionPanel.SicknessInventoryId);
+            int current = mgr.PlayerInventory.GetAmountHeld(WaterGameActions.SicknessInventoryId);
 
             // Pull the lose-condition threshold so the widget tracks whatever the scenario
             // defines, instead of hardcoding 3 in two places (scenario JSON + UI).
@@ -237,7 +249,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             {
                 foreach (LoseCondition lc in mgr.LoseConditions)
                 {
-                    if (lc != null && lc.TargetItemID == WaterGameActionPanel.SicknessInventoryId)
+                    if (lc != null && lc.TargetItemID == WaterGameActions.SicknessInventoryId)
                     {
                         max = Mathf.Max(1, (int)lc.LowerLimit);
                         break;

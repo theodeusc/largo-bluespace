@@ -59,7 +59,13 @@ namespace Glitchers.EcoKnow.Sandbox
         // (typically the primary pollutant, e.g. eColi_sewage) and hide the rest with
         // HiddenFromEntityPanel so the player sees a single unified "Pollution: LOW/MED/HIGH"
         // readout instead of one widget per pollutant axis.
-        bool IsAggregatePollutionDisplay = false
+        bool IsAggregatePollutionDisplay = false,
+
+        // Player-facing label override. When null/empty, UI falls back to the raw ID. Lets
+        // the scenario re-name technical IDs ("eColi_sewage") for the ToolPanel and other
+        // player-visible spots without renaming the underlying entity key (which would break
+        // matrix loading and code references).
+        string DisplayName = null
         );
 
 

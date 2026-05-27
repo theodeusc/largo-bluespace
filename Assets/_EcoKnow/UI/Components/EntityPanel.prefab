@@ -582,9 +582,13 @@ PrefabInstance:
       propertyPath: m_Name
       value: Button_Icon_Secondary
       objectReference: {fileID: 0}
+    - target: {fileID: 3848908978779605964, guid: e786ac89dbe9c6349b86789af0326d05, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 8595712887812558996, guid: e786ac89dbe9c6349b86789af0326d05, type: 3}
       propertyPath: m_Sprite
-      value: 
+      value:
       objectReference: {fileID: 2886171100861976631, guid: d0015bf5fa68d01499564c0842957296, type: 3}
     m_RemovedComponents: []
     m_RemovedGameObjects: []

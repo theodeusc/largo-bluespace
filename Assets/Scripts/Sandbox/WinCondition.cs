@@ -70,12 +70,6 @@ namespace Glitchers.EcoKnow.Sandbox
 
         public bool FinalRoundOnly { get; private set; }
 
-        // Number of trailing rounds in which a FinalRoundOnly condition is actually evaluated.
-        // Two gives the player a penultimate-round "you're on track / running out of time"
-        // signal plus the actual decider on the final round. Earlier rounds skip entirely so
-        // mid-game pollution peaks can't lock in a permanent FAILED.
-        private const int FINAL_ROUNDS_TO_EVALUATE = 2;
-
         private bool _completed;
         public bool Completed => IsCurrentlyComplete();
 
@@ -100,18 +94,10 @@ namespace Glitchers.EcoKnow.Sandbox
 
         public void OnNewRound()
         {
-            // FinalRoundOnly conditions only track during the final N rounds (penultimate +
-            // final by default). Earlier rounds skip entirely so the cache stays empty and a
-            // mid-game pollution peak can't push GRACE → FAILED and lock in defeat. Once the
-            // tracking window opens, the standard cache + grace logic applies and IsCurrentlyComplete
-            // looks at the latest result at EndGame to decide pass/fail.
-            if (FinalRoundOnly)
-            {
-                SandboxManager mgr = SandboxManager.Instance;
-                if (mgr == null) return;
-                if (mgr.CurrentRound < mgr.MaxRounds - FINAL_ROUNDS_TO_EVALUATE) return;
-            }
-
+            // FinalRoundOnly conditions now track every round (so the tracker UI can show
+            // IN_RANGE / GRACE per round like any other objective), but the failure path
+            // suppresses FAILED until the actual final round — see OnFailedRound. Earlier
+            // rounds therefore can't lock in defeat from a mid-game pollution peak.
             if (GetLatestResult() == Result.FAILED)
             {
                 //No longer tracked
@@ -128,6 +114,16 @@ namespace Glitchers.EcoKnow.Sandbox
                     OnFailedRound();
                 }
             }
+        }
+
+        // True when this round is the last evaluation round of the game (i.e. EndGame will
+        // fire right after). Used by FinalRoundOnly conditions to decide whether a missed
+        // round should escalate to FAILED (decider) or stay at GRACE (tracking-only).
+        private bool IsFinalRound()
+        {
+            SandboxManager mgr = SandboxManager.Instance;
+            if (mgr == null) return false;
+            return mgr.CurrentRound >= mgr.MaxRounds - 1;
         }
 
         protected bool HasConditionBeenMet()
@@ -224,12 +220,22 @@ namespace Glitchers.EcoKnow.Sandbox
             if (GetLatestResult() == Result.NOT_STARTED)
             {
                 PushResult(Result.NOT_STARTED);
+                return;
             }
-            else
+
+            // FinalRoundOnly conditions show GRACE every missed round (so the tracker reads
+            // "off-target") but never escalate to FAILED until the actual final round, where
+            // the miss is the decider for the game-end win check. The grace counter is
+            // bypassed so this can repeat indefinitely across mid-game rounds without
+            // exhausting it.
+            if (FinalRoundOnly && !IsFinalRound())
             {
-                Result failResult = CanEnterGracePeriod() ? Result.GRACE : Result.FAILED;
-                PushResult(failResult);
+                _resultCache.Add(Result.GRACE);
+                return;
             }
+
+            Result failResult = CanEnterGracePeriod() ? Result.GRACE : Result.FAILED;
+            PushResult(failResult);
         }
 
 
