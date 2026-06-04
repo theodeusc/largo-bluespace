@@ -47,9 +47,11 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         public Color SeawaterDefaultShallow => _seaAsset != null ? _seaAsset.GetColor(IdShallowColor) : new Color(0.32f, 0.62f, 0.78f, 1f);
         public Color SeawaterDefaultDeep => _seaAsset != null ? _seaAsset.GetColor(IdDeepColor) : new Color(0.08f, 0.18f, 0.35f, 1f);
         public Color SeawaterDefaultBaseTint => _seaAsset != null ? _seaAsset.GetColor(IdBaseTint) : Color.white;
+        public Color SeawaterDefaultCaustic => _seaAsset != null ? _seaAsset.GetColor(IdCausticColor) : new Color(0.45f, 0.74f, 0.77f, 0.5f);
         public Color FreshwaterDefaultShallow => _freshAsset != null ? _freshAsset.GetColor(IdShallowColor) : new Color(0.32f, 0.62f, 0.78f, 1f);
         public Color FreshwaterDefaultDeep => _freshAsset != null ? _freshAsset.GetColor(IdDeepColor) : new Color(0.08f, 0.18f, 0.35f, 1f);
         public Color FreshwaterDefaultBaseTint => _freshAsset != null ? _freshAsset.GetColor(IdBaseTint) : Color.white;
+        public Color FreshwaterDefaultCaustic => _freshAsset != null ? _freshAsset.GetColor(IdCausticColor) : new Color(0.27f, 0.6f, 0.64f, 0.5f);
         public Color OverflowDefaultTint => _seaAsset != null ? _seaAsset.GetColor(IdOverflowTintColor) : new Color(0.45f, 0.28f, 0.1f, 1f);
         public float OverflowDefaultStrength => _seaAsset != null ? _seaAsset.GetFloat(IdOverflowTintStrength) : 1f;
 
@@ -78,6 +80,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         private static readonly int IdOverflowTintColor = Shader.PropertyToID("_OverflowTintColor");
         private static readonly int IdOverflowTintStrength = Shader.PropertyToID("_OverflowTintStrength");
         private static readonly int IdFreshSandMap = Shader.PropertyToID("_FreshSandMap");
+        private static readonly int IdCausticColor = Shader.PropertyToID("_CausticColor");
 
         // Caustic pixel-snap density per cell. Matches the original water rendering pipeline.
         private const float PatchPixels = 32f;
@@ -275,11 +278,13 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         /// Sets the seawater tint as the END point of a smooth lerp. The current material
         /// colours become the lerp's start point; the new values are reached after
         /// <see cref="ColorLerpDuration"/> seconds (advanced in <see cref="Update"/>).
+        /// Caustic ride-alongs the same lerp so the sparkle warms toward muddy water in
+        /// step with the shallow/deep transition.
         /// </summary>
-        public void SetSeawaterTint(Color shallow, Color deep, Color baseTint)
+        public void SetSeawaterTint(Color shallow, Color deep, Color baseTint, Color caustic)
         {
             if (_seaInstance == null) return;
-            BeginColorLerp(ref _seaLerp, _seaInstance, shallow, deep, baseTint, ColorLerpDuration);
+            BeginColorLerp(ref _seaLerp, _seaInstance, shallow, deep, baseTint, caustic, ColorLerpDuration);
         }
 
         /// <summary>
@@ -287,10 +292,10 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         /// tint is re-synced each frame from the freshwater shallow colour, so it follows
         /// the lerp without an extra explicit hook.
         /// </summary>
-        public void SetFreshwaterTint(Color shallow, Color deep, Color baseTint)
+        public void SetFreshwaterTint(Color shallow, Color deep, Color baseTint, Color caustic)
         {
             if (_freshInstance == null) return;
-            BeginColorLerp(ref _freshLerp, _freshInstance, shallow, deep, baseTint, ColorLerpDuration);
+            BeginColorLerp(ref _freshLerp, _freshInstance, shallow, deep, baseTint, caustic, ColorLerpDuration);
         }
 
         /// <summary>
@@ -328,6 +333,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 _seaInstance.SetColor(IdShallowColor, _seaAsset.GetColor(IdShallowColor));
                 _seaInstance.SetColor(IdDeepColor, _seaAsset.GetColor(IdDeepColor));
                 _seaInstance.SetColor(IdBaseTint, _seaAsset.GetColor(IdBaseTint));
+                _seaInstance.SetColor(IdCausticColor, _seaAsset.GetColor(IdCausticColor));
                 _seaInstance.SetColor(IdOverflowTintColor, _seaAsset.GetColor(IdOverflowTintColor));
                 _seaInstance.SetFloat(IdOverflowTintStrength, _seaAsset.GetFloat(IdOverflowTintStrength));
             }
@@ -336,6 +342,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
                 _freshInstance.SetColor(IdShallowColor, _freshAsset.GetColor(IdShallowColor));
                 _freshInstance.SetColor(IdDeepColor, _freshAsset.GetColor(IdDeepColor));
                 _freshInstance.SetColor(IdBaseTint, _freshAsset.GetColor(IdBaseTint));
+                _freshInstance.SetColor(IdCausticColor, _freshAsset.GetColor(IdCausticColor));
             }
             SyncDiffusionTint();
         }
@@ -359,6 +366,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             public Color ShallowStart, ShallowEnd;
             public Color DeepStart, DeepEnd;
             public Color BaseStart, BaseEnd;
+            public Color CausticStart, CausticEnd;
         }
 
         private struct OverflowColorLerp
@@ -374,16 +382,18 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         private WaterColorLerp _freshLerp;
         private OverflowColorLerp _overflowLerp;
 
-        private void BeginColorLerp(ref WaterColorLerp s, Material m, Color shallowEnd, Color deepEnd, Color baseEnd, float duration)
+        private void BeginColorLerp(ref WaterColorLerp s, Material m, Color shallowEnd, Color deepEnd, Color baseEnd, Color causticEnd, float duration)
         {
             // Capture the material's current values as the lerp start; this handles
             // restart-mid-animation correctly (start = current, not previous target).
             s.ShallowStart = m.GetColor(IdShallowColor);
             s.DeepStart = m.GetColor(IdDeepColor);
             s.BaseStart = m.GetColor(IdBaseTint);
+            s.CausticStart = m.GetColor(IdCausticColor);
             s.ShallowEnd = shallowEnd;
             s.DeepEnd = deepEnd;
             s.BaseEnd = baseEnd;
+            s.CausticEnd = causticEnd;
             s.StartTime = Time.time;
             s.Duration = duration <= 0f ? 0.001f : duration;
             s.Active = true;
@@ -410,6 +420,7 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             m.SetColor(IdShallowColor, Color.Lerp(s.ShallowStart, s.ShallowEnd, t));
             m.SetColor(IdDeepColor, Color.Lerp(s.DeepStart, s.DeepEnd, t));
             m.SetColor(IdBaseTint, Color.Lerp(s.BaseStart, s.BaseEnd, t));
+            m.SetColor(IdCausticColor, Color.Lerp(s.CausticStart, s.CausticEnd, t));
             if (t >= 1f) s.Active = false;
         }
 

@@ -429,9 +429,9 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
                 Sprite = sprite,
                 Positions = allPositions,
                 Rotations = allRotations,
-                RenderAboveTerrain = TilesetConstants.Sand,
+                RenderAboveAllTerrain = true,
                 WorldSize = OysterWorldSize,
-                Tint = Color.white
+                Tint = new Color(0.85f, 0.92f, 1f, 0.65f)
             });
         }
 
@@ -467,9 +467,9 @@ namespace Glitchers.EcoKnow.Sandbox.Rendering
                 GroupId = SeagrassGroupId,
                 Sprite = sprite,
                 Positions = allPositions,
-                RenderAboveTerrain = TilesetConstants.Sand,
+                RenderAboveAllTerrain = true,
                 WorldSize = SeagrassWorldSize,
-                Tint = Color.white
+                Tint = new Color(0.85f, 0.92f, 1f, 0.65f)
             });
         }
 

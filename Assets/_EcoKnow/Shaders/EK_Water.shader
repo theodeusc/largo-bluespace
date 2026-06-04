@@ -346,7 +346,7 @@ Shader "EcoKnow/Water"
                 if (_WaterType <= 0.5)
                 {
                     float causticOverflow = tex2D(_OverflowMap, altUV).r;
-                    causticTint.rgb = lerp(causticTint.rgb, float3(0.85, 0.55, 0.25),
+                    causticTint.rgb = lerp(causticTint.rgb, float3(0.314, 0.208, 0.082),
                                            causticOverflow * _OverflowTintStrength);
                 }
                 fixed4 tintedCaustic = causticSample * causticTint;
@@ -423,7 +423,7 @@ Shader "EcoKnow/Water"
                     // a gradual deep-side fade. Halo factor suppresses the taper
                     // in the fresh-diffusion / estuary zone.
                     float transparency = (1.0 - pow(1.0 - inv, _ShoreFadeExtent)) * (1.0 - altSample4.a);
-                    shoreAlpha = 1.0 - transparency * (0.25 + noise * 0.1);
+                    shoreAlpha = 1.0 - transparency * (0.15 + noise * 0.05);
                 }
                 waterColor.a *= max(shoreAlpha, foamAlpha);
 

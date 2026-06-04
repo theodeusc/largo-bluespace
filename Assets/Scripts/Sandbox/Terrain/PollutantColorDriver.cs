@@ -12,7 +12,8 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
     //     reads as 0 (current default colour) and (baseline + addition) reads as 1 (full brown).
     //   - Combined "muddiness" = norm_eColi * norm_phosphate * norm_sediment (multiplication
     //     per user spec; small individual norms compound into a strongly subdued combined value).
-    //   - Lerp the zone's authored default water colours toward BrownTint by the combined amount.
+    //   - Lerp the zone's authored default water colours toward the dirty palette
+    //     (DirtyShallowTint / DirtyDeepTint / DirtyCausticTint) by the combined amount.
     //
     // Estuary regions are aliased to freshwater (RegionComputeManager.BuildEstuaryAliases) and
     // contribute no separate state — they render via the freshwater material instance, which is
@@ -30,18 +31,39 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
         private const int ZoneFreshwater = 4;
         private const int ZoneOverflow = 8;
 
-        // Muddy tan brown — full-pollution endpoint for the colour lerp. Tuned lighter than
-        // a pure dark brown so even max-tinted freshwater reads as "dirty" rather than near-black.
-        private static readonly Color BrownTint = new Color(0.58f, 0.45f, 0.30f, 1f);
+        // Peak-pollution palette — these ARE the colours the water reaches at full lerp.
+        // Authored as direct hex targets per component (shallow, deep, caustic) so the
+        // dirty water has a consistent, designable end-state rather than emerging from
+        // a single mud constant lerped into blue defaults.
+        //   Shallow #8E5E23 — warm muddy ochre at the surface
+        //   Deep    #503515 — darker rust where the seabed reads through
+        //   Caustic #B76C25 — bright rust sparkle (alpha preserved from default caustic)
+        private static readonly Color DirtyShallowTint = new Color(0.557f, 0.369f, 0.137f, 1f);
+        private static readonly Color DirtyDeepTint = new Color(0.314f, 0.208f, 0.082f, 1f);
+        private static readonly Color DirtyCausticTint = new Color(0.718f, 0.424f, 0.145f, 1f);
 
-        // Per-zone caps on the visible tint amount. The norm computation can return up to 1
-        // (full lerp to brown), but visually a clean blue lake doesn't go all the way to mud
-        // brown at the worst day, and the ocean's volume dilutes pollution far further. These
-        // factors multiply the computed t so even full-pollution rounds keep the water mostly
-        // in its authored blue/green range. Tune per scenario to taste.
-        private const float MaxFreshwaterTint = 0.95f; // freshwater reads strongly muddy across the full pollution range
-        private const float MaxSeawaterTint = 0.2f;    // seawater stays mostly blue but tints noticeably
-        private const float MaxOverflowTint = 0.7f;    // overflow plume tints similarly to freshwater
+        // Caustic sparkle moves toward the given target's RGB but keeps its asset-authored
+        // alpha, so the sparkle stays translucent — only the colour warms with pollution.
+        private static Color CausticTarget(Color defaultCaustic, Color brown) =>
+            new Color(brown.r, brown.g, brown.b, defaultCaustic.a);
+
+        // Per-zone caps on the visible water-body tint amount. Sea and freshwater both
+        // commit fully to the dirty palette at peak so the authored hex colours land
+        // exactly. Overflow stays slightly under 1 because its baseline tint already
+        // sits in the mud range — capping below 1 gives an asymptotic-feeling sweep.
+        private const float MaxFreshwaterTint = 1.0f;
+        private const float MaxSeawaterTint = 1.0f;
+        private const float MaxOverflowTint = 0.85f;
+
+        // Caustic and water-body share caps now that both target the same dirty palette.
+        private const float MaxFreshwaterCausticTint = 1.0f;
+        private const float MaxSeawaterCausticTint = 1.0f;
+
+        // Curve exponent for both freshwater and seawater pollution lerps. Below 1 pushes
+        // harder at low pollution so the water clearly tints early instead of dwelling in
+        // the awkward blue→brown midpoint, which in RGB passes through a desaturated
+        // violet-grey when the channels cross. 0.35 jumps past that zone fast.
+        private const float TintCurveExponent = 0.35f;
 
         // Pollutant entity IDs the driver looks up. Missing entities resolve to "no contribution"
         // so non-pollutant scenarios (no e_coli/etc defined) behave as no-ops.
@@ -73,37 +95,52 @@ namespace Glitchers.EcoKnow.Sandbox.Terrain
             if (scenario == null || entityManager == null || tintController == null) return;
             if (regionManager == null || !regionManager.IsActive) return;
 
-            // Freshwater applies a sqrt curve to amplify low-pollutant response: with a
-            // linear norm, half the addition only registered as ~35% brown (0.5 * 0.7),
-            // which read as "mostly clean" even when pollution was clearly present.
-            // sqrt(0.5) ≈ 0.71, so half-addition now reads as ~67% brown (0.71 * 0.95).
-            // Seawater and overflow keep the linear curve — seawater is intentionally
-            // subtle and overflow has its own dedicated shader mask path.
+            // Curve exponent (<1) amplifies low-pollutant response so the water clearly
+            // tints early. With a linear norm the lerp dwells in the awkward blue→orange
+            // midpoint where channels cross and the result reads as a desaturated violet-
+            // grey. pow(x, 0.35) jumps past that zone fast. Norms are reused for caustic
+            // so caps scale the same underlying signal.
             float freshNorm = ComputeZoneNorm(scenario, entityManager, regionManager, RegionType.Freshwater, ZoneFreshwater);
-            float freshT = Mathf.Sqrt(freshNorm) * MaxFreshwaterTint;
-            float seaT = ComputeZoneNorm(scenario, entityManager, regionManager, RegionType.Seawater, ZoneSeawater) * MaxSeawaterTint;
+            float freshCurve = Mathf.Pow(freshNorm, TintCurveExponent);
+            float freshT = freshCurve * MaxFreshwaterTint;
+            float freshCausticT = freshCurve * MaxFreshwaterCausticTint;
+            float seaNorm = ComputeZoneNorm(scenario, entityManager, regionManager, RegionType.Seawater, ZoneSeawater);
+            float seaCurve = Mathf.Pow(seaNorm, TintCurveExponent);
+            float seaT = seaCurve * MaxSeawaterTint;
+            float seaCausticT = seaCurve * MaxSeawaterCausticTint;
             float overflowT = ComputeZoneNorm(scenario, entityManager, regionManager, RegionType.Overflow, ZoneOverflow) * MaxOverflowTint;
 
-            // Freshwater: blend shallow / deep / base toward brown by combined norm.
-            Color freshShallow = Color.Lerp(tintController.FreshwaterDefaultShallow, BrownTint, freshT);
-            Color freshDeep = Color.Lerp(tintController.FreshwaterDefaultDeep, BrownTint, freshT);
-            Color freshBase = Color.Lerp(tintController.FreshwaterDefaultBaseTint, BrownTint, freshT);
-            tintController.SetFreshwaterTint(freshShallow, freshDeep, freshBase);
+            // Freshwater: lerp each surface property to its dirty-palette target.
+            // BaseTint is held at its asset default (multiplicative; lerping it would
+            // double-tint with shallow/deep). Caustic preserves its asset alpha so the
+            // sparkle stays translucent — only the RGB warms.
+            Color freshCausticDefault = tintController.FreshwaterDefaultCaustic;
+            Color freshCausticEnd = CausticTarget(freshCausticDefault, DirtyCausticTint);
+            Color freshShallow = Color.Lerp(tintController.FreshwaterDefaultShallow, DirtyShallowTint, freshT);
+            Color freshDeep = Color.Lerp(tintController.FreshwaterDefaultDeep, DirtyDeepTint, freshT);
+            Color freshBase = tintController.FreshwaterDefaultBaseTint;
+            Color freshCaustic = Color.Lerp(freshCausticDefault, freshCausticEnd, freshCausticT);
+            tintController.SetFreshwaterTint(freshShallow, freshDeep, freshBase, freshCaustic);
 
-            Color seaShallow = Color.Lerp(tintController.SeawaterDefaultShallow, BrownTint, seaT);
-            Color seaDeep = Color.Lerp(tintController.SeawaterDefaultDeep, BrownTint, seaT);
-            Color seaBase = Color.Lerp(tintController.SeawaterDefaultBaseTint, BrownTint, seaT);
-            tintController.SetSeawaterTint(seaShallow, seaDeep, seaBase);
+            // Seawater: same palette as freshwater. Same caps; the only meaningful
+            // difference at peak is that the two water bodies started from different
+            // clean colours and converge here.
+            Color seaCausticDefault = tintController.SeawaterDefaultCaustic;
+            Color seaCausticEnd = CausticTarget(seaCausticDefault, DirtyCausticTint);
+            Color seaShallow = Color.Lerp(tintController.SeawaterDefaultShallow, DirtyShallowTint, seaT);
+            Color seaDeep = Color.Lerp(tintController.SeawaterDefaultDeep, DirtyDeepTint, seaT);
+            Color seaBase = tintController.SeawaterDefaultBaseTint;
+            Color seaCaustic = Color.Lerp(seaCausticDefault, seaCausticEnd, seaCausticT);
+            tintController.SetSeawaterTint(seaShallow, seaDeep, seaBase, seaCaustic);
 
             // Overflow uses a single tint colour + strength uniform rather than shallow/deep.
             // Strength stays at its authored default when overflowT == 0, scaling up toward 1
-            // as overflow regions accumulate pollutants. Colour blends similarly so the brown
-            // sweep into seawater intensifies with pollution rather than being a fixed shade.
-            // Once the Water Treatment Facility is online anywhere on the map, the brown
-            // sweep is suppressed visually — strength clamps to 0 so the overflow patches
-            // read as clean seawater, while the existing 2 s lerp inside WaterTintController
-            // animates the transition.
-            Color overflowColor = Color.Lerp(tintController.OverflowDefaultTint, BrownTint, overflowT);
+            // as overflow regions accumulate pollutants. Colour blends toward DirtyDeepTint
+            // so overflow patches read as the darkest mud — the rawest sewage shade in the
+            // palette. Once the Water Treatment Facility is online anywhere on the map, the
+            // brown sweep is suppressed visually — strength clamps to 0 so overflow patches
+            // blend back into clean seawater via the existing 2 s WaterTintController lerp.
+            Color overflowColor = Color.Lerp(tintController.OverflowDefaultTint, DirtyDeepTint, overflowT);
             float overflowStrength = Mathf.Lerp(tintController.OverflowDefaultStrength, 1f, overflowT);
             if (TreatmentActive(entityManager))
             {
