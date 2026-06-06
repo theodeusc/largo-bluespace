@@ -79,6 +79,13 @@ namespace Glitchers.EcoKnow.Sandbox
         #region Loading Scenario Config
         public static void ShowLoadDialog(Action<Scenario> onSuccess, Action onCancel)
         {
+#if !(UNITY_STANDALONE || UNITY_EDITOR)
+            // Arbitrary-path file access is unavailable under mobile scoped storage.
+            // Tablet builds use the Resources-based integrated scenarios instead.
+            Debug.LogWarning($"{LogChannel} Load-from-file is not available on this platform; use integrated scenarios.");
+            onCancel?.Invoke();
+            return;
+#else
             FileBrowser.SetFilters(false, ".json");
             FileBrowser.ShowLoadDialog(
             (filePaths) =>
@@ -109,11 +116,14 @@ namespace Glitchers.EcoKnow.Sandbox
             null,
             "Load Scenario JSON File"
             );
+#endif
         }
 
         public static void HideLoadDialog()
         {
+#if UNITY_STANDALONE || UNITY_EDITOR
             FileBrowser.HideDialog();
+#endif
         }
 
         private static string ParseJsonFromFile(string[] filePaths)

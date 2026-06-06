@@ -687,6 +687,11 @@ $RECYCLE.BIN/
 /_temporary/
 /Assets/Third-Party/TextMesh Pro/*
 
+# Local-only Android build helper + build output
+/Assets/Editor/AndroidBuildScript.cs
+/Assets/Editor/AndroidBuildScript.cs.meta
+/Builds/
+
 # Probuilder (switches between CR & LF randomly)
 /ProjectSettings/Packages/com.unity.probuilder/Settings.json
 

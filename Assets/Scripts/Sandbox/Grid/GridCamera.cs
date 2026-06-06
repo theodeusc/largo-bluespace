@@ -43,6 +43,9 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
         private bool _isDragging = false;
         private bool _leftMouseStartedOverUI = false;
         private Vector3 _lastMousePosition;
+        private Vector2 _touchStartPosition;
+        // Finger travel (pixels) before a one-finger touch becomes a pan rather than a tap.
+        private const float TouchDragThreshold = 10f;
         [SerializeField] private float _mouseSensitivity = 1.0f;
 
         [Header("Pixel Perfect")]
@@ -142,6 +145,12 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
         private void HandleMouseInput()
         {
+            // On touch devices Unity simulates mouse input from the first finger.
+            // Skip the mouse pan/zoom path while touches are active so HandleTouchInput
+            // is the single owner of touch panning (otherwise one finger pans twice).
+            if (Input.touchCount > 0)
+                return;
+
             // Mouse drag panning with left or middle mouse button
             // Latch: if left-click started over UI, suppress the entire drag until mouse-up
             if (Input.GetMouseButtonDown(0))
@@ -200,7 +209,7 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
         private void HandleTouchInput()
         {
-#if UNITY_MOBILE || UNITY_EDITOR
+#if UNITY_ANDROID || UNITY_IOS || UNITY_EDITOR
             // Single finger drag panning
             if (Input.touchCount == 1)
             {
@@ -208,22 +217,34 @@ namespace Glitchers.EcoKnow.Sandbox.Grid
 
                 if (touch.phase == TouchPhase.Began)
                 {
-                    _isDragging = true;
+                    // Defer drag until the finger moves past the threshold so a
+                    // stationary tap still reaches GridManager cell selection
+                    // (UpdateInput runs before the Fire1 check in HandleInput).
+                    _isDragging = false;
+                    _touchStartPosition = touch.position;
                     _lastMousePosition = touch.position;
                 }
-                else if (touch.phase == TouchPhase.Moved && _isDragging)
+                else if (touch.phase == TouchPhase.Moved)
                 {
-                    Vector3 currentTouchPosition = touch.position;
-                    Vector3 touchDelta = currentTouchPosition - _lastMousePosition;
+                    if (!_isDragging && (touch.position - _touchStartPosition).magnitude > TouchDragThreshold)
+                    {
+                        _isDragging = true;
+                    }
 
-                    // Convert screen space delta to world space
-                    Vector3 worldDelta = _camera.ScreenToWorldPoint(new Vector3(touchDelta.x, touchDelta.y, _camera.nearClipPlane));
-                    worldDelta -= _camera.ScreenToWorldPoint(Vector3.zero);
+                    if (_isDragging)
+                    {
+                        Vector3 currentTouchPosition = touch.position;
+                        Vector3 touchDelta = currentTouchPosition - _lastMousePosition;
 
-                    // Apply movement with sensitivity
-                    UpdateCameraPositionSmooth(-worldDelta.x * _mouseSensitivity, -worldDelta.y * _mouseSensitivity);
+                        // Convert screen space delta to world space
+                        Vector3 worldDelta = _camera.ScreenToWorldPoint(new Vector3(touchDelta.x, touchDelta.y, _camera.nearClipPlane));
+                        worldDelta -= _camera.ScreenToWorldPoint(Vector3.zero);
 
-                    _lastMousePosition = currentTouchPosition;
+                        // Apply movement with sensitivity
+                        UpdateCameraPositionSmooth(-worldDelta.x * _mouseSensitivity, -worldDelta.y * _mouseSensitivity);
+                    }
+
+                    _lastMousePosition = touch.position;
                 }
                 else if (touch.phase == TouchPhase.Ended || touch.phase == TouchPhase.Canceled)
                 {

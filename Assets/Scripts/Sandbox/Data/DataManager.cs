@@ -138,6 +138,12 @@ namespace Glitchers.EcoKnow.Sandbox.Data
 
         public void ShowSaveDialog(Action onSuccess, Action onCancel)
         {
+#if !(UNITY_STANDALONE || UNITY_EDITOR)
+            // Save-to-arbitrary-path is unavailable under mobile scoped storage.
+            Debug.LogWarning("[DataManager] Export-to-file is not available on this platform.");
+            onCancel?.Invoke();
+            return;
+#else
             //Get scenario name
             string scenarioName = "Unknown";
             if ((ScenarioLoader.Instance != null) && (ScenarioLoader.Instance.LastPlayedScenario != null))
@@ -171,6 +177,7 @@ namespace Glitchers.EcoKnow.Sandbox.Data
             defaultFileName,
             "Export Game Data"
             );
+#endif
         }
         #endregion
 
