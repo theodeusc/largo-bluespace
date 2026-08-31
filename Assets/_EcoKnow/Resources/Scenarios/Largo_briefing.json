@@ -6,12 +6,13 @@
     "image": "cover.jpg",
     "body": "A catchment is the area of land where every drop of rain flows downhill to a single body of water — a river, lake, or bay.\n\nWhatever happens on the land — farming, sewage, storm drains — eventually ends up in the water at the bottom. The Largo catchment funnels two rivers into one coastal bay."
   },
-  "actions_intro": "You can perform limited **actions** each round to meet your **Objectives**.\n\nYou can **Harvest** oysters from the bay, **Pick Litter** from the beach and rivers, **Fundraise** to grow your budget, and once you've saved enough, invest in **Wastewater Treatment Facility** that cleans the water in the rivers before it runs into the bay. Understanding how pollution travels from the rivers into the bay — and how treatment reverses it — is the heart of your strategy.",
+  "actions_intro": "You can perform limited **actions** each round to meet your **Objectives**.\n\nYou can **Forage** oysters from the bay, **Pick Litter** from the beach and rivers, **Fundraise** to grow your budget, and once you've saved enough, invest in **Wastewater Treatment Facility** that cleans the water in the rivers before it runs into the bay. Understanding how pollution travels from the rivers into the bay — and how treatment reverses it — is the heart of your strategy.",
   "entity_descriptions": {
-    "WaterPollution": "The bay's aggregate pollution readout. Combines microbial contamination from sewage, agricultural phosphate, and sediment. While it reads MED or HIGH, the water is unsafe to forage for oysters.",
+    "WaterPollution": "The bay's aggregate pollution readout. Combines microbial contamination from sewage with agricultural phosphate. While it reads MED or HIGH, the water is unsafe to forage for oysters.",
     "Litter": "Plastic and debris collecting along the beach and rivers. Pair \"Pick Litter\" with \"Fundraise\" the same turn for a +20 credit combo bonus.",
     "Seal": "A resident harbour seal living on the crescent beach — a symbol of a healthy coastline.",
-    "Oyster": "Filter-feeding shellfish that are the bay's ecological backbone. Each one sells for 1 credit. Leave at least 230 in the bay by the final round."
+    "Currency": "Credits pay for the Wastewater Treatment Facility, which costs 140. **Fundraise** to grow your budget, and pair it with \"Pick Litter\" in the same turn for a +20 credit combo bonus. Foraging income alone cannot reach 140 before sickness ends the run.",
+    "Oyster": "Filter-feeding shellfish that are the bay's ecological backbone. Each one sells for 1 credit. Foraging them while the water reads MED or HIGH makes people sick — three sicknesses ends the run. Leave at least 230 in the bay by the final round."
   },
   "objectives": [
     {
@@ -21,7 +22,7 @@
       "goal": "Aggregate pollution = LOW at the final round"
     },
     {
-      "title": "Don't Overfish Oysters",
+      "title": "Don't Overfish",
       "entity": "Oyster",
       "description": "Leave at least 230 oysters in the bay by the final round. Light-to-moderate foraging (up to ~5 cycles) is sustainable — greedy foraging crashes the bay.",
       "goal": "Oyster population ≥ 230 at the final round"
@@ -31,7 +32,7 @@
     {
       "entity": "WaterPollution",
       "name": "Dirty-Water Sickness",
-      "description": "Eating oysters from polluted water makes people sick. Three sicknesses ends the game — always check the aggregate tier before fishing."
+      "description": "Eating oysters from polluted water makes people sick. Three sicknesses ends the game — always check the aggregate tier before foraging."
     },
     {
       "icon": "clock_high_contrast",
@@ -40,8 +41,8 @@
     },
     {
       "icon": "currency",
-      "name": "The Fishing-Only Trap",
-      "description": "Fishing income alone cannot reach the 200-credit treatment cost before sickness ends the run. The Pick Litter + Fundraise combo is the structural path to affording it."
+      "name": "The Foraging-Only Trap",
+      "description": "Foraging income alone cannot reach the 140-credit treatment cost before sickness ends the run. The Pick Litter + Fundraise combo is the structural path to affording it."
     }
   ],
   "why_this_matters": "Coastal bays around the world face the same pressures Largo models: rivers carrying pollutants in agricultural runoff, urban sewage, and storm-drain overflow into shallow waters where shellfish and seagrass live. Eutrophication from excess phosphate and bacterial contamination from sewage are two leading causes of beach closures and shellfish-bed shutdowns globally.\n\nThis scenario uses the same Lotka-Volterra population dynamics that ecologists use to study species interactions, plus a pollutant-movement model that mirrors how rivers transport contaminants downstream.\n\nBuilding a wastewater treatment facility is one of the most effective and most expensive interventions a community can make. The trade-off between paying now and cleaning up later is at the heart of real-world water policy.\n\n**Your decisions mirror the choices real stakeholders must make when balancing environmental restoration with limited budgets and community expectations.**",

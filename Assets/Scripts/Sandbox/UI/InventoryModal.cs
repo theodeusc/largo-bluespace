@@ -64,7 +64,14 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             InventoryRow[] selectedRows = _inventoryRowList.Where(x => x.IsSelectedForSell).ToArray();
             if (selectedRows == null || selectedRows.Length == 0) return;
 
-            bool anyCommit = false;
+            // Tracked separately because the three commit paths account for their own action
+            // point differently. Lumping them into one flag made a Water Treatment purchase
+            // charge twice: TryBuyWaterTreatment spends the point itself, and then the shared
+            // onSellSuccess handler spent a second one — costing the player the entire round's
+            // budget for a one-point action, firing the turn-advance pipeline twice, and
+            // recording the purchase as a SELL in the analytics stream.
+            bool anySell = false;
+            bool anyGenericBuy = false;
 
             foreach (InventoryRow row in selectedRows)
             {
@@ -75,19 +82,21 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                     //install + tint clear run alongside the inventory mutation.
                     if (row.ItemID == SandboxManager.WaterTreatmentItemID)
                     {
-                        if (SandboxManager.Instance.TryBuyWaterTreatment()) anyCommit = true;
+                        //Self-accounting: spends its own action point and raises
+                        //OnActionCompleted internally, so nothing more is owed here.
+                        SandboxManager.Instance.TryBuyWaterTreatment();
                     }
                     else
                     {
                         //Future generic buyables can route through the inventory-only path.
                         if (SandboxManager.Instance.PlayerInventory?.BuyItem(row.ItemID, row.SelectedUnits) == true)
-                            anyCommit = true;
+                            anyGenericBuy = true;
                     }
                 }
                 else
                 {
                     if (SandboxManager.Instance.PlayerInventory?.SellItem(row.ItemID, row.SelectedUnits) == true)
-                        anyCommit = true;
+                        anySell = true;
                 }
 
                 row.ClearSelection();
@@ -96,9 +105,16 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             RefreshInventory();
             OnUnitsAdjusted();
 
-            if (anyCommit)
+            if (anySell)
             {
                 onSellSuccess?.Invoke();
+            }
+            else if (anyGenericBuy)
+            {
+                //Inventory-only buyables don't spend their own point, but they aren't sells
+                //either — charge the action without emitting a SELL analytics event.
+                SandboxManager.SpendActionPoint();
+                SandboxManager.OnActionCompleted();
             }
         }
 

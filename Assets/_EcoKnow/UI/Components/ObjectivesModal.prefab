@@ -325,6 +325,12 @@ MonoBehaviour:
   _authorText: {fileID: 3959652366167834994}
   _descriptionText: {fileID: 5388813820051715003}
   _coverImage: {fileID: 8567241124428378702}
+  _dismissButtonLabel: {fileID: 7700000000000000060}
+  _firstShowLabel: Start
+  _reopenLabel: Close
+  _modalContainerLayout: {fileID: 5617859435919068529}
+  _landscapeFraction: {x: 0.66, y: 0.68}
+  _portraitFraction: {x: 0.86, y: 0.52}
 --- !u!114 &8437322432874194629
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -482,7 +488,7 @@ MonoBehaviour:
   m_VertexBufferAutoSizeReduction: 0
   m_useMaxVisibleDescender: 1
   m_pageToDisplay: 1
-  m_margin: {x: 0, y: 0, z: 0, w: 0}
+  m_margin: {x: 22, y: 4, z: 22, w: 14}
   m_isUsingLegacyAnimationComponent: 0
   m_isVolumetricText: 0
   m_hasFontAssetChanged: 0
@@ -771,7 +777,7 @@ MonoBehaviour:
   m_fontSizeMin: 18
   m_fontSizeMax: 72
   m_fontStyle: 1
-  m_HorizontalAlignment: 1
+  m_HorizontalAlignment: 2
   m_VerticalAlignment: 512
   m_textAlignment: 65535
   m_characterSpacing: 0
@@ -924,7 +930,7 @@ MonoBehaviour:
     m_Right: 16
     m_Top: 16
     m_Bottom: 16
-  m_ChildAlignment: 0
+  m_ChildAlignment: 1
   m_Spacing: 16
   m_ChildForceExpandWidth: 0
   m_ChildForceExpandHeight: 0
@@ -1129,10 +1135,10 @@ MonoBehaviour:
   m_Horizontal: 0
   m_Vertical: 1
   m_MovementType: 1
-  m_Elasticity: 0.1
+  m_Elasticity: 0.25
   m_Inertia: 1
-  m_DecelerationRate: 0.135
-  m_ScrollSensitivity: 1
+  m_DecelerationRate: 0.25
+  m_ScrollSensitivity: 32
   m_Viewport: {fileID: 1370442123474271125}
   m_HorizontalScrollbar: {fileID: 0}
   m_VerticalScrollbar: {fileID: 1962400538966441098}
@@ -1431,6 +1437,17 @@ RectTransform:
   m_CorrespondingSourceObject: {fileID: 2520486221065486268, guid: 1a09d0fd5d784a64bae90363bc4ad541, type: 3}
   m_PrefabInstance: {fileID: 7024176109620406088}
   m_PrefabAsset: {fileID: 0}
+--- !u!114 &7700000000000000060 stripped
+MonoBehaviour:
+  m_CorrespondingSourceObject: {fileID: 4345246448104068667, guid: 1a09d0fd5d784a64bae90363bc4ad541, type: 3}
+  m_PrefabInstance: {fileID: 7024176109620406088}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f4688fdb7df04437aeb418b961361dc5, type: 3}
+  m_Name:
+  m_EditorClassIdentifier:
 --- !u!1001 &9180545672685226304
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -1477,15 +1494,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2018408112062368988, guid: a8eb0dac8c0ed6b44bc60494d08ff8d9, type: 3}
       propertyPath: m_Padding.m_Top
-      value: 0
+      value: 8
       objectReference: {fileID: 0}
     - target: {fileID: 2018408112062368988, guid: a8eb0dac8c0ed6b44bc60494d08ff8d9, type: 3}
       propertyPath: m_ChildAlignment
-      value: 0
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 2018408112062368988, guid: a8eb0dac8c0ed6b44bc60494d08ff8d9, type: 3}
       propertyPath: m_Padding.m_Left
-      value: 0
+      value: 8
       objectReference: {fileID: 0}
     - target: {fileID: 2018408112062368988, guid: a8eb0dac8c0ed6b44bc60494d08ff8d9, type: 3}
       propertyPath: m_ChildScaleWidth
@@ -1493,11 +1510,11 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 2018408112062368988, guid: a8eb0dac8c0ed6b44bc60494d08ff8d9, type: 3}
       propertyPath: m_Padding.m_Right
-      value: 0
+      value: 8
       objectReference: {fileID: 0}
     - target: {fileID: 2018408112062368988, guid: a8eb0dac8c0ed6b44bc60494d08ff8d9, type: 3}
       propertyPath: m_Padding.m_Bottom
-      value: 0
+      value: 8
       objectReference: {fileID: 0}
     - target: {fileID: 2018408112062368988, guid: a8eb0dac8c0ed6b44bc60494d08ff8d9, type: 3}
       propertyPath: m_ChildControlWidth

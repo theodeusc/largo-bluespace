@@ -14,6 +14,14 @@ namespace Glitchers.EcoKnow.Sandbox.UI
         private int _selectedEntityIndex = -1;
         public int SelectedEntityIndex => _selectedEntityIndex;
 
+        // The visible panel background the entity rows sit in. This component's own
+        // RectTransform is a full-height spacer (its LayoutElement takes all the leftover
+        // vertical space in the side column) while the background hangs from the top and is
+        // sized to its content — so anything that needs to sit flush under the entity list
+        // must measure this, not the spacer. Derived from the container reference rather
+        // than serialised separately so there is one wiring point, not two.
+        public RectTransform PanelRect => _entityButtonContainer != null ? _entityButtonContainer.parent as RectTransform : null;
+
         public Action<int> onEntitySelected;
         public Action onEntityDeselected;
 

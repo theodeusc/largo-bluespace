@@ -18,6 +18,13 @@ namespace Glitchers.EcoKnow.Sandbox.UI
         [SerializeField] private TMP_Text _entityNameText;
         [SerializeField] private TMP_Text _entityPopulationText;
 
+        // Briefing blurb for the selected entity (why it matters, what it costs, what it
+        // risks). Sourced from the briefing sidecar via BriefingLookup rather than from the
+        // Entity record, which has no description field — this keeps the copy authored in
+        // one place alongside the rest of the briefing. Hidden when no blurb exists, so
+        // scenarios without a briefing render exactly as they did before.
+        [SerializeField] private TMP_Text _entityDescriptionText;
+
         [Header("Action Button (Button_Action_Primary instance)")]
         // The Button component on the Button_Action_Primary instance. Its onClick is wired at
         // runtime to invoke whichever EntityActionRegistry descriptor matches the selected
@@ -80,7 +87,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             SetEntity(entityIndex);
             this.gameObject.SetActive(true);
 
-            AnchorToPosition(anchoredWidget.transform.position, entityWidgetXOffset);
+            PanelAnchor.AnchorTo(this.transform, _panelRectTransform, anchoredWidget.transform.position, entityWidgetXOffset);
         }
 
         public void HideToolbar()
@@ -116,7 +123,29 @@ namespace Glitchers.EcoKnow.Sandbox.UI
 
             ApplyPopulation(em, entity, entityIndex);
 
+            ApplyDescription(entity);
+
             ApplyAction(entity);
+        }
+
+        // Pulls the entity's briefing blurb and shows it above the action button. The whole
+        // GameObject is toggled (not just the string) so the panel's VerticalLayoutGroup
+        // collapses the gap entirely for entities with no copy, rather than leaving a
+        // 16px hole where the text would have been.
+        private void ApplyDescription(Entity entity)
+        {
+            if (_entityDescriptionText == null) return;
+
+            string description = BriefingLookup.GetEntityDescription(entity);
+
+            if (string.IsNullOrEmpty(description))
+            {
+                _entityDescriptionText.gameObject.SetActive(false);
+                return;
+            }
+
+            _entityDescriptionText.text = MarkdownToRichText.Convert(description);
+            _entityDescriptionText.gameObject.SetActive(true);
         }
 
         // Mirrors EntityWidget.UpdateQuantity so the ToolPanel readout stays consistent with
@@ -208,19 +237,6 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             // explicitly. The deselect also resets the panel's _selectedEntityIndex so the
             // very next click on the same row reopens the panel instead of toggling it off.
             onActionPerformed?.Invoke();
-        }
-
-        private void AnchorToPosition(Vector3 position, float xOffset = 0f)
-        {
-            Vector3 finalPosition = position;
-            finalPosition.x += xOffset;
-
-            this.transform.position = finalPosition;
-
-            if (_panelRectTransform != null)
-            {
-                LayoutRebuilder.ForceRebuildLayoutImmediate(_panelRectTransform);
-            }
         }
     }
 }

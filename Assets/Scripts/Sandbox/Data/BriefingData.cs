@@ -4,8 +4,14 @@ namespace Glitchers.EcoKnow.Sandbox.Data
 {
     // Mirrors the EcoKnow scenario-briefings YAML schema
     // (https://ecoknowgames.github.io/briefings/). The canonical source is
-    // <scenario>_briefing.yaml; the matching <scenario>_briefing.json is a
+    // Assets/_EcoKnow/Briefings/<scenario>_briefing.yaml; the matching
+    // Assets/_EcoKnow/Resources/Scenarios/<scenario>_briefing.json is a
     // hand-converted runtime mirror, deserialised by ScenarioLoader.
+    //
+    // The YAML deliberately lives OUTSIDE Resources/. Unity imports .yaml as a
+    // TextAsset too, so keeping both files in Resources/Scenarios made
+    // Resources.Load<TextAsset>("Scenarios/<scenario>_briefing") ambiguous — if it
+    // resolved to the YAML, JsonConvert threw and the briefing silently vanished.
     [System.Serializable]
     public class BriefingData
     {

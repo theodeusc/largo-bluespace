@@ -1,15 +1,28 @@
+using System;
 using System.Linq;
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace Glitchers.EcoKnow.Sandbox.UI
 {
     public class ObjectiveWidget : MonoBehaviour
     {
+        // Raised when the player taps the widget. ObjectivesPanel relays this up to SandboxUI,
+        // which resolves the WinCondition and opens the shared InfoPopup — the widget itself
+        // stays presentation-only and knows nothing about the popup.
+        public event Action<ObjectiveWidget> onClicked;
+
         private CanvasGroup _canvasGroup => this.GetComponent<CanvasGroup>();
 
         [Header("Entity")]
         [SerializeField] private EntityIcon _entityIcon;
+
+        [Header("Interaction")]
+        // Makes the otherwise icon-only widget tappable so its title and description can be
+        // read mid-run. Wired in Init rather than Awake: DoStateTransition can fire before
+        // Awake on Selectable subclasses, so button setup belongs on an explicit call.
+        [SerializeField] private Button _button;
 
         [Header("Round Target")]
         [SerializeField] private TMP_Text _roundTargetText;
@@ -26,6 +39,36 @@ namespace Glitchers.EcoKnow.Sandbox.UI
         public int TargetIndex => _targetIndex;
 
         private const string LogChannel = "[ObjectiveWidget]";
+
+        // The condition this widget represents, resolved through the same lookup the widget
+        // already uses for its own state updates. Exposed rather than cached so there is no
+        // second copy of the mapping that could drift from GetWinCondition.
+        public WinCondition Condition => GetWinCondition();
+
+        // Called by ObjectivesPanel immediately after instantiation, before the Set* calls.
+        public void Init()
+        {
+            if (_button != null)
+            {
+                _button.onClick.RemoveAllListeners();
+                _button.onClick.AddListener(OnClicked);
+            }
+        }
+
+        public void Cleanup()
+        {
+            if (_button != null)
+            {
+                _button.onClick.RemoveAllListeners();
+            }
+
+            onClicked = null;
+        }
+
+        private void OnClicked()
+        {
+            onClicked?.Invoke(this);
+        }
 
         public void SetEntity(int index, Entity entity)
         {

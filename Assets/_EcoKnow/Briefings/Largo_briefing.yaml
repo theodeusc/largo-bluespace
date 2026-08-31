@@ -15,17 +15,19 @@ info_card:
 actions_intro: |
   You can perform limited **actions** each round to meet your **Objectives**.
 
-  You can **Harvest** oysters from the bay, **Pick Litter** from the beach and rivers, **Fundraise** to grow your budget, and once you've saved enough, invest in **Wastewater Treatment Facility** that cleans the water in the rivers before it runs into the bay. Understanding how pollution travels from the rivers into the bay — and how treatment reverses it — is the heart of your strategy.
+  You can **Forage** oysters from the bay, **Pick Litter** from the beach and rivers, **Fundraise** to grow your budget, and once you've saved enough, invest in **Wastewater Treatment Facility** that cleans the water in the rivers before it runs into the bay. Understanding how pollution travels from the rivers into the bay — and how treatment reverses it — is the heart of your strategy.
 
 entity_descriptions:
   WaterPollution: |
-    The bay's aggregate pollution readout. Combines microbial contamination from sewage, agricultural phosphate, and sediment. While it reads MED or HIGH, the water is unsafe to forage for oysters.
+    The bay's aggregate pollution readout. Combines microbial contamination from sewage with agricultural phosphate. While it reads MED or HIGH, the water is unsafe to forage for oysters.
   Litter: |
     Plastic and debris collecting along the beach and rivers. Pair "Pick Litter" with "Fundraise" the same turn for a +20 credit combo bonus.
   Seal: |
     A resident harbour seal living on the crescent beach — a symbol of a healthy coastline.
+  Currency: |
+    Credits pay for the Wastewater Treatment Facility, which costs 140. **Fundraise** to grow your budget, and pair it with "Pick Litter" in the same turn for a +20 credit combo bonus. Foraging income alone cannot reach 140 before sickness ends the run.
   Oyster: |
-    Filter-feeding shellfish that are the bay's ecological backbone. Each one sells for 1 credit. Leave at least 230 in the bay by the final round.
+    Filter-feeding shellfish that are the bay's ecological backbone. Each one sells for 1 credit. Foraging them while the water reads MED or HIGH makes people sick — three sicknesses ends the run. Leave at least 230 in the bay by the final round.
 
 objectives:
   - title: Water Pollution Under Control
@@ -33,7 +35,7 @@ objectives:
     description: Bring catchment-wide water pollution down to LOW by the final round. Treatment is the only structural lever once late-round additions ramp up.
     goal: Aggregate pollution = LOW at the final round
 
-  - title: Don't Overfish Oysters
+  - title: Don't Overfish
     entity: Oyster
     description: Leave at least 230 oysters in the bay by the final round. Light-to-moderate foraging (up to ~5 cycles) is sustainable — greedy foraging crashes the bay.
     goal: Oyster population ≥ 230 at the final round
@@ -41,13 +43,13 @@ objectives:
 watch_out:
   - entity: WaterPollution
     name: Dirty-Water Sickness
-    description: Eating oysters from polluted water makes people sick. Three sicknesses ends the game — always check the aggregate tier before fishing.
+    description: Eating oysters from polluted water makes people sick. Three sicknesses ends the game — always check the aggregate tier before foraging.
   - icon: clock_high_contrast
     name: Late Pollution Spike
     description: Pollution inputs ramp up from round 1 to round 5. If you haven't built the Water Treatment Facility by round 6, the bay may not recover in time.
   - icon: currency
-    name: The Fishing-Only Trap
-    description: Fishing income alone cannot reach the 200-credit treatment cost before sickness ends the run. The Pick Litter + Fundraise combo is the structural path to affording it.
+    name: The Foraging-Only Trap
+    description: Foraging income alone cannot reach the 140-credit treatment cost before sickness ends the run. The Pick Litter + Fundraise combo is the structural path to affording it.
 
 why_this_matters: |
   Coastal bays around the world face the same pressures Largo models: rivers carrying pollutants in agricultural runoff, urban sewage, and storm-drain overflow into shallow waters where shellfish and seagrass live. Eutrophication from excess phosphate and bacterial contamination from sewage are two leading causes of beach closures and shellfish-bed shutdowns globally.

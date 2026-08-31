@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
@@ -6,9 +7,20 @@ namespace Glitchers.EcoKnow.Sandbox.UI
 {
     public class ObjectivesPanel : MonoBehaviour
     {
+        // Raised when an objective widget is tapped, carrying the condition it represents.
+        // SandboxUI subscribes and opens the shared InfoPopup, which positions itself from
+        // the pointer rather than from the widget.
+        public event Action<WinCondition> onObjectiveSelected;
+
         [Header("Widgets")]
         [SerializeField] private ObjectiveWidget _widgetPrefab;
         [SerializeField] private Transform _widgetContainer;
+
+        // Widgets spawned by the most recent Init. Tracked explicitly rather than re-queried
+        // via GetComponentsInChildren: Destroy is deferred to end-of-frame, so a child query
+        // made in the same frame as a rebuild would still return the outgoing widgets
+        // alongside the new ones.
+        private readonly List<ObjectiveWidget> _widgets = new List<ObjectiveWidget>();
 
         private const string LogChannel = "[ObjectivesPanel]";
 
@@ -21,6 +33,14 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             }
 
             //Remove old objectives
+            foreach (ObjectiveWidget widget in _widgets)
+            {
+                if (widget == null) continue;
+                widget.onClicked -= OnWidgetClicked;
+                widget.Cleanup();
+            }
+            _widgets.Clear();
+
             foreach (Transform child in _widgetContainer)
             {
                 Destroy(child.gameObject);
@@ -30,6 +50,11 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             foreach (WinCondition condition in winConditions)
             {
                 ObjectiveWidget widget = Instantiate(_widgetPrefab, _widgetContainer);
+                _widgets.Add(widget);
+
+                widget.Init();
+                widget.onClicked += OnWidgetClicked;
+
                 widget.ResultsTracker.Init(null, -1, -1); //Not ideal but works for now
 
                 switch ((WinCondition.TargetType)condition.TypeIndex)
@@ -81,18 +106,26 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             }
         }
 
-        private ObjectiveWidget GetWidgetByIndex(WinCondition.TargetType type, int index)
+        // Relays a widget tap upward with the condition it represents. Widgets whose
+        // condition can't be resolved (shouldn't happen, but the lookup is nullable) are
+        // dropped rather than raising an event with no payload.
+        private void OnWidgetClicked(ObjectiveWidget widget)
         {
-            if (_widgetContainer != null)
+            if (widget == null) return;
+
+            WinCondition condition = widget.Condition;
+            if (condition == null)
             {
-                ObjectiveWidget[] widgets = _widgetContainer.GetComponentsInChildren<ObjectiveWidget>();
-                if ((widgets != null) && (widgets.Count() > 0))
-                {
-                    return widgets.FirstOrDefault(x => x.Type == type && x.TargetIndex == index);
-                }
+                Debug.LogWarning($"{LogChannel} Objective widget clicked but its WinCondition could not be resolved.");
+                return;
             }
 
-            return null;
+            onObjectiveSelected?.Invoke(condition);
+        }
+
+        private ObjectiveWidget GetWidgetByIndex(WinCondition.TargetType type, int index)
+        {
+            return _widgets.FirstOrDefault(x => x != null && x.Type == type && x.TargetIndex == index);
         }
 
         private ObjectiveWidget GetWidgetById(WinCondition.TargetType type, string id)
@@ -125,14 +158,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             //Try find widget
             if (index >= 0)
             {
-                if (_widgetContainer != null)
-                {
-                    ObjectiveWidget[] widgets = _widgetContainer.GetComponentsInChildren<ObjectiveWidget>();
-                    if ((widgets != null) && (widgets.Count() > 0))
-                    {
-                        return widgets.FirstOrDefault(x => x.Type == type && x.TargetIndex == index);
-                    }
-                }
+                return GetWidgetByIndex(type, index);
             }
 
             return null;

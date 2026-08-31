@@ -451,6 +451,26 @@ namespace Glitchers.EcoKnow.Sandbox
             return false;
         }
 
+        // Finds the lose condition guarding a raw inventory key (e.g. "sickness"). Single
+        // lookup shared by the HUD counter, which derives its "x / max" ceiling from
+        // LowerLimit, and by the info popup, which shows the condition's authored title and
+        // description — so neither restates a threshold or a rule the scenario already owns.
+        public LoseCondition GetLoseConditionForItem(string itemId)
+        {
+            if (_loseConditions == null || string.IsNullOrEmpty(itemId)) return null;
+
+            for (int i = 0; i < _loseConditions.Count; i++)
+            {
+                LoseCondition condition = _loseConditions[i];
+                if (condition != null && condition.TargetItemID == itemId)
+                {
+                    return condition;
+                }
+            }
+
+            return null;
+        }
+
         public void StartNewRound()
         {
             _currentRound += 1;

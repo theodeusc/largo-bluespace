@@ -195,7 +195,7 @@
       }
     ],
     "Items": [
-      { "ID": "water_treatment_facility", "Icon": "Icons/water_treatment_facility", "Value": 0, "CanSell": false, "BuyPrice": 200, "MaxQuantity": 1 },
+      { "ID": "water_treatment_facility", "Icon": "Icons/water_treatment_facility", "Value": 0, "CanSell": false, "BuyPrice": 140, "MaxQuantity": 1 },
       { "ID": "oyster", "Icon": "Icons/oyster", "Value": 1, "CanSell": true },
       { "ID": "litter", "Icon": "Icons/litter", "Value": 0, "CanSell": false }
     ],
@@ -212,7 +212,7 @@
       },
       {
         "Title": "Don't Overfish",
-        "Description": "Leave at least 230 oysters in the bay by the final round. Light-to-moderate fishing (up to ~5 cycles) is sustainable — greedy fishing crashes the bay.",
+        "Description": "Leave at least 230 oysters in the bay by the final round. Light-to-moderate foraging (up to ~5 cycles) is sustainable — greedy foraging crashes the bay.",
         "TypeIndex": 0,
         "TargetIndex": 6,
         "LowerLimit": 230.0,
@@ -13489,15 +13489,15 @@
       { "Kind": 2, "Multiplier": 1.0 },
       { "Kind": 2, "Multiplier": 1.0 }
     ],
-    "TreatmentMinRound": 5,
-    "TreatmentCost": 200,
+    "TreatmentMinRound": 4,
+    "TreatmentCost": 140,
     "FundraisingIncome": 16,
     "LitterFundraiseComboBonus": 20,
     "PickLitterReductionPerAction": 15,
     "LoseConditions": [
       {
         "Title": "Dirty-Water Sickness",
-        "Description": "Eating oysters from polluted water makes people sick. Three sicknesses ends the game — always check the aggregate tier before fishing.",
+        "Description": "Eating oysters from polluted water makes people sick. Three sicknesses ends the game — always check the aggregate tier before foraging.",
         "TypeIndex": 1,
         "TargetIndex": 0,
         "LowerLimit": 3.0,

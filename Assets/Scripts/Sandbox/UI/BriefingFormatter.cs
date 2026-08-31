@@ -1,5 +1,4 @@
 using System.Text;
-using System.Text.RegularExpressions;
 using Glitchers.EcoKnow.Sandbox.Data;
 
 namespace Glitchers.EcoKnow.Sandbox.UI
@@ -10,8 +9,6 @@ namespace Glitchers.EcoKnow.Sandbox.UI
     // for scenarios without a briefing file.
     public static class BriefingFormatter
     {
-        private static readonly Regex PascalCaseSplit = new Regex(@"(?<!^)(?=[A-Z])");
-
         public static string Compose(Scenario scenario, BriefingData briefing)
         {
             string fallback = scenario != null ? scenario.Description : null;
@@ -49,7 +46,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                 AppendHeading(sb, "Key Entities");
                 foreach (var pair in briefing.entity_descriptions)
                 {
-                    AppendBullet(sb, Humanise(pair.Key), pair.Value, null);
+                    AppendBullet(sb, BriefingLookup.Humanise(pair.Key), pair.Value, null);
                 }
             }
 
@@ -59,7 +56,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                 foreach (BriefingData.WatchOut w in briefing.watch_out)
                 {
                     if (w == null) continue;
-                    string heading = !string.IsNullOrEmpty(w.name) ? w.name : Humanise(w.entity);
+                    string heading = !string.IsNullOrEmpty(w.name) ? w.name : BriefingLookup.Humanise(w.entity);
                     AppendBullet(sb, heading, w.description, null);
                 }
             }
@@ -113,12 +110,6 @@ namespace Glitchers.EcoKnow.Sandbox.UI
                 sb.Append("</i>");
             }
             sb.Append('\n');
-        }
-
-        private static string Humanise(string id)
-        {
-            if (string.IsNullOrEmpty(id)) return id;
-            return PascalCaseSplit.Replace(id, " ");
         }
     }
 }
