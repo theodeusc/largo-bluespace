@@ -13,12 +13,21 @@ namespace Glitchers.EcoKnow.Sandbox.UI
         // layout rebuild so ContentSizeFitter-driven panels report their final size in the
         // same frame they are shown — without this, a panel that grew to fit new text would
         // render one frame at its previous size.
+        //
+        // xOffset is in canvas reference units, matching how the callers author it and how
+        // PlaceInsetFromEdges and ClampInside treat their margins. It has to be converted to
+        // screen pixels before being added to a world-space position: previously it was
+        // added raw, so the gap was correct only at a canvas scale of exactly 1 and drifted
+        // at every other resolution.
         public static void AnchorTo(Transform panel, RectTransform rebuildTarget, Vector3 anchorWorldPosition, float xOffset)
         {
             if (panel == null) return;
 
+            float scale = panel.lossyScale.x;
+            if (Mathf.Approximately(scale, 0f)) scale = 1f;
+
             Vector3 finalPosition = anchorWorldPosition;
-            finalPosition.x += xOffset;
+            finalPosition.x += xOffset * scale;
             panel.position = finalPosition;
 
             if (rebuildTarget != null)

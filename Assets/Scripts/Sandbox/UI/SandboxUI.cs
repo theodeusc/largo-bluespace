@@ -71,6 +71,34 @@ namespace Glitchers.EcoKnow.Sandbox.UI
 
         private const string LogChannel = "[SandboxUI]";
 
+        // Set once Init has run. PlaceBriefingButton measures the entity panel, which is
+        // empty until then, so the UI-scale hook has to stay inert until there is something
+        // to measure.
+        private bool _initialised;
+
+        #region Lifecycle
+        private void OnEnable()
+        {
+            UIScale.Changed += OnUiScaleChanged;
+        }
+
+        private void OnDisable()
+        {
+            UIScale.Changed -= OnUiScaleChanged;
+        }
+
+        // The briefing bubble is the one piece of this HUD positioned in absolute world
+        // space rather than by a layout group, so it is also the one piece that does not
+        // follow when the canvas rescales -- it would stay pinned to the same physical
+        // pixel while the entity column above it moved. Everything else in the column is
+        // anchor- or layout-driven and re-solves itself.
+        private void OnUiScaleChanged()
+        {
+            if (!_initialised) return;
+            PlaceBriefingButton();
+        }
+        #endregion
+
         #region Setup
         public void Init(Scenario scenario, EntityManager entityManager, WinCondition[] winConditions, PlayerInventory playerInventory)
         {
@@ -143,6 +171,7 @@ namespace Glitchers.EcoKnow.Sandbox.UI
             // background can still report its pre-populated height. Place once now so the
             // bubble is never wildly wrong, then again once Unity's own layout pass has
             // settled, which is when the measurement is actually trustworthy.
+            _initialised = true;
             PlaceBriefingButton();
             StartCoroutine(PlaceBriefingButtonWhenLaidOut());
         }
@@ -155,8 +184,8 @@ namespace Glitchers.EcoKnow.Sandbox.UI
 
         // Sizes the briefing bubble to the entity panel's visible background and parks it
         // directly underneath, so the two read as one column. The entity panel stays the
-        // single source of that width. One-shot: the entity list's width comes from a fixed
-        // widget size and its height only changes when the scenario is rebuilt.
+        // single source of that width. Re-run on scenario rebuild and whenever UIScale
+        // changes, since both move the entity panel underneath the bubble.
         private void PlaceBriefingButton()
         {
             if (_briefingButtonRect == null || _entityPanel == null) return;
